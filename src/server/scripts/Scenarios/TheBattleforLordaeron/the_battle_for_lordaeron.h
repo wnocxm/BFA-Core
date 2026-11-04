@@ -111,9 +111,60 @@ enum HordeScenarioEvents
     SCENARIO_EVENT_H_FOLLOW_SYLVANAS        = 62204,
 };
 
-// TODO: fill from world DB (creature_template / spawns on map 1760).
+enum BattleForLordaeronQuests
+{
+    QUEST_THE_BATTLE_FOR_LORDAERON_H    = 51796, // Horde, next quest 53028
+    QUEST_THE_BATTLE_FOR_LORDAERON_A    = 51795, // Alliance, next quest 52946
+};
+
+// Entries spawned on map 1760 in the world DB (bfa_world-17.06.2024).
 enum BattleForLordaeronNpcs
 {
+    NPC_HIGH_OVERLORD_SAURFANG          = 129179,
+    NPC_LADY_SYLVANAS_WINDRUNNER        = 124651,
+    NPC_NATHANOS_BLIGHTCALLER           = 136394,
+    NPC_LORTHEMAR_THERON                = 137939,
+    NPC_ANDUIN_WRYNN                    = 126309,
+    NPC_GENN_GREYMANE                   = 125496,
+    NPC_JAINA_PROUDMOORE                = 124787,
+    NPC_ALLERIA_WINDRUNNER              = 125138,
+    NPC_AZERITE_WAR_MACHINE             = 132079,
+    NPC_FORSAKEN_BLIGHT_THROWER         = 127147,
+    NPC_FORSAKEN_APOTHECARY             = 126780,
+    NPC_ROYAL_DREADGUARD                = 125196,
+    NPC_DARK_RANGER                     = 125097,
+    NPC_ORGRIMMAR_RAIDER                = 124480,
+    NPC_TAUREN_EARTHSHAKER              = 125231,
+    NPC_PLAGUE_GAS                      = 124565,
+    NPC_PLAGUE_WAGON                    = 126786,
+};
+
+enum BattleForLordaeronGameObjects
+{
+    GOB_PLAGUE_CISTERN                  = 281556,
+    GOB_FRONT_GATE                      = 279041,
+};
+
+// SpellName.db2
+enum BattleForLordaeronSpells
+{
+    SPELL_TELEPORT_TO_LORDAERON         = 259094,
+    SPELL_LEAVE_FOR_LORDAERON_QUEUE     = 269807,
+    SPELL_PORTAL_SIEGE_OF_LORDAERON     = 269811,
+    SPELL_LEAVE_FOR_LORDAERON           = 272129,
+    SPELL_BLIGHT_GAS                    = 247450,
+    SPELL_SUMMON_NATHANOS               = 273822,
+    SPELL_PING_LORDAERON_SCENARIO_RP    = 276832,
+};
+
+// scene_template SceneId (SceneScriptPackage.db2 name in comment)
+enum BattleForLordaeronScenes
+{
+    SCENE_AZERITE_MACHINE_ARRIVES       = 3022, // 8.0 Lordaeron Scenario - Azerite Machine Arrives
+    SCENE_SAURFANG_LAST_STAND           = 1945, // 8.0 [SLS] Saurfang's Last Stand - IGC
+    SCENE_SYLVANAS_BLOCKS_ALLIANCE      = 1845, // 8.0 [SBA] Sylvanas Blocks Alliance (Exploding Cisterns)
+    SCENE_SYLVANAS_DUMPS_BLIGHT         = 1785, // 8.0 [SDB] Sylvanas Dumps Blight (also 3026)
+    SCENE_LORDAERON_ARMY_UNITS          = 3091, // 8.0 [BVID] Lordaeron Army Units
 };
 
 #endif // DEF_THE_BATTLE_FOR_LORDAERON_H
