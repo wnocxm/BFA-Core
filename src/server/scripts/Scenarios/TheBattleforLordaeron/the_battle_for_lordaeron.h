@@ -19,9 +19,7 @@
 #define DEF_THE_BATTLE_FOR_LORDAERON_H
 
 #include "ScriptMgr.h"
-#include "CombatAI.h"
 #include "Creature.h"
-#include "CreatureGroups.h"
 #include "GameObject.h"
 #include "InstanceScript.h"
 #include "Scenario.h"
@@ -137,6 +135,13 @@ enum BattleForLordaeronNpcs
     NPC_TAUREN_EARTHSHAKER              = 125231,
     NPC_PLAGUE_GAS                      = 124565,
     NPC_PLAGUE_WAGON                    = 126786,
+
+    // Undercity part (Horde steps 1-5), summoned by the instance script
+    NPC_SI7_OPERATIVE                   = 131957,
+    NPC_GILNEAN_MAULER                  = 138714,
+    NPC_STORMWIND_FOOTMAN               = 124979,
+    NPC_FORSAKEN_REFUGEE                = 141119,
+    NPC_UNDERCITY_PORTAL                = 126680, // generic "Portal"
 };
 
 enum BattleForLordaeronGameObjects
