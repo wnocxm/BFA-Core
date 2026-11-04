@@ -1731,7 +1731,7 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
             lockStatus = LFG_LOCKSTATUS_RAID_LOCKED;
         else if (dungeon->minlevel > level)
             lockStatus = LFG_LOCKSTATUS_TOO_LOW_LEVEL;
-        else if (dungeon->maxlevel < level)
+        else if (dungeon->maxlevel && dungeon->maxlevel < level) // MaxLevel 0 in LFGDungeons.db2 means no upper limit
             lockStatus = LFG_LOCKSTATUS_TOO_HIGH_LEVEL;
         else if (dungeon->seasonal && !IsSeasonActive(dungeon->id))
             lockStatus = LFG_LOCKSTATUS_NOT_IN_SEASON;
@@ -2191,7 +2191,7 @@ LfgDungeonSet LFGMgr::GetRandomAndSeasonalDungeons(uint8 level, uint8 expansion)
     {
         lfg::LFGDungeonData const& dungeon = itr->second;
         if ((dungeon.type == lfg::LFG_TYPE_RANDOM || (dungeon.seasonal && sLFGMgr->IsSeasonActive(dungeon.id)))
-            && dungeon.expansion <= expansion && dungeon.minlevel <= level && level <= dungeon.maxlevel)
+            && dungeon.expansion <= expansion && dungeon.minlevel <= level && (!dungeon.maxlevel || level <= dungeon.maxlevel))
             randomDungeons.insert(dungeon.Entry());
     }
     return randomDungeons;
