@@ -98,6 +98,7 @@ namespace
     constexpr float  EVACUATE_RANGE             = 5.0f;
     constexpr float  PORTAL_USE_RANGE           = 3.0f;
     constexpr float  FRONT_LINE_RANGE           = 15.0f;
+    constexpr float  START_TELEPORT_RANGE       = 40.0f;
 }
 
 struct scenario_the_battle_for_lordaeron : public InstanceScript
@@ -124,12 +125,16 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         if (!IsHordeScenario() || GetCurrentStepId() != STEP_H_UNDER_SIEGE)
             return;
 
-        // The Horde scenario starts inside the Undercity.
+        // The Horde scenario starts inside the Undercity. LFG already puts the player
+        // there (lfg_dungeon_template); only move players who entered somewhere else
+        // (e.g. with .go). Teleporting again during the loading screen leaves the
+        // client floating in the air.
         ObjectGuid playerGuid = player->GetGUID();
-        _scheduler.Schedule(1s, [this, playerGuid](TaskContext /*context*/)
+        _scheduler.Schedule(5s, [this, playerGuid](TaskContext /*context*/)
         {
             if (Player* p = ObjectAccessor::GetPlayer(instance, playerGuid))
-                p->NearTeleportTo(PlayerStartPos);
+                if (!p->IsBeingTeleported() && p->GetDistance(PlayerStartPos) > START_TELEPORT_RANGE)
+                    p->NearTeleportTo(PlayerStartPos);
         });
 
         if (_started)
