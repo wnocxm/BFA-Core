@@ -15,6 +15,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#ifndef DEF_THE_BATTLE_FOR_LORDAERON_H
+#define DEF_THE_BATTLE_FOR_LORDAERON_H
+
 #include "ScriptMgr.h"
 #include "CombatAI.h"
 #include "Creature.h"
@@ -23,9 +26,94 @@
 #include "InstanceScript.h"
 #include "Scenario.h"
 
-#ifndef DEF_THE_BATTLE_FOR_LORDAERON_H
-#define DEF_THE_BATTLE_FOR_LORDAERON_H
+// Map.db2 1760 "LordaeronScenario" is shared by both factions.
+// Scenario.db2: 1371 "The Siege of Lordaeron" (Alliance), 1482 "The Fall of Lordaeron" (Horde).
+enum BattleForLordaeronMisc
+{
+    MAP_LORDAERON_SCENARIO          = 1760,
+    SCENARIO_SIEGE_OF_LORDAERON     = 1371, // Alliance
+    SCENARIO_FALL_OF_LORDAERON      = 1482, // Horde
+};
 
+// ScenarioStep.db2 entries for scenario 1482 (Horde), in order.
+enum HordeScenarioSteps
+{
+    STEP_H_UNDER_SIEGE              = 3628, // Find Saurfang.
+    STEP_H_SPIES_IN_OUR_MIDST       = 3654, // Secure the Mage District.
+    STEP_H_TO_THE_HEART             = 3660, // Follow Saurfang to the Heart of the City
+    STEP_H_EVACUATE_HEART           = 3658, // Evacuate the Remainder of Undercity
+    STEP_H_TO_BATTLE                = 3661, // Use the Portal to meet with Sylvanas Windrunner.
+    STEP_H_PUSH_THEM_BACK           = 3677, // Break their front line
+    STEP_H_DEFEND_WAR_MACHINE       = 3704, // Defend the Azerite War Machine
+    STEP_H_OUR_SECRET_WEAPON        = 3678, // Use blight on Alliance forces to drive them away.
+    STEP_H_LIKE_WILDFIRE            = 3679, // Meet with Nathanos Blightcaller
+    STEP_H_HOLDING_THEM_BACK        = 3680, // Intercept the Alliance with Nathanos Blightcaller.
+    STEP_H_THE_KING_PIECE           = 3681, // Defeat King Anduin Wrynn and his Allies.
+    STEP_H_CRY_HAVOC                = 3687, // Sylvanas has called for the retreat.
+    STEP_H_THE_DARK_LADY            = 3688, // Follow Sylvanas.
+};
 
-#endif
+// CriteriaTree.db2 root trees of each Horde step (handy for OnCompletedCriteriaTree).
+enum HordeCriteriaTrees
+{
+    CRITERIA_TREE_H_UNDER_SIEGE         = 62528,
+    CRITERIA_TREE_H_SPIES_IN_OUR_MIDST  = 62680, // weighted sum, 120 needed
+    CRITERIA_TREE_H_TO_THE_HEART        = 62813,
+    CRITERIA_TREE_H_EVACUATE_HEART      = 62810, // weighted sum, 110 needed
+    CRITERIA_TREE_H_TO_BATTLE           = 62872,
+    CRITERIA_TREE_H_PUSH_THEM_BACK      = 63971, // weighted sum, 100 needed
+    CRITERIA_TREE_H_DEFEND_WAR_MACHINE  = 64876,
+    CRITERIA_TREE_H_OUR_SECRET_WEAPON   = 63974, // weighted sum, 250 needed
+    CRITERIA_TREE_H_LIKE_WILDFIRE       = 63976,
+    CRITERIA_TREE_H_HOLDING_THEM_BACK   = 64018,
+    CRITERIA_TREE_H_THE_KING_PIECE      = 64020, // weighted sum, 150 needed
+    CRITERIA_TREE_H_CRY_HAVOC           = 64022,
+    CRITERIA_TREE_H_THE_DARK_LADY       = 64024,
+};
 
+// Criteria.db2 assets. Each one is progressed with DoSendScenarioEvent(id).
+// Weight = how much one event adds to a weighted-sum step.
+enum HordeScenarioEvents
+{
+    // Under Siege
+    SCENARIO_EVENT_H_REPORT_TO_SAURFANG     = 61422,
+    // Spies in Our Midst (120)
+    SCENARIO_EVENT_H_MAGE_DISTRICT_A        = 61487, // weight 4
+    SCENARIO_EVENT_H_MAGE_DISTRICT_B        = 61488, // weight 3
+    // To the Heart! (both required)
+    SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART  = 62155,
+    SCENARIO_EVENT_H_HEART_REACHED          = 61527,
+    // Evacuate the Heart of the City (110)
+    SCENARIO_EVENT_H_EVACUATE_CITIZEN       = 61525, // weight 2
+    SCENARIO_EVENT_H_EVACUATE_B             = 61526, // weight 3
+    // To Battle!
+    GAME_EVENT_H_USE_PORTAL                 = 61568, // CRITERIA_TYPE_SEND_EVENT (spell effect SEND_EVENT), not a scenario event
+    SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE = 62174,
+    // Push Them Back (100)
+    SCENARIO_EVENT_H_ALLIANCE_DEFEATED      = 62175, // weight 2
+    // Defend the Azerite War Machine (both required)
+    SCENARIO_EVENT_H_WAVE_DEFEATED          = 62289, // x3
+    SCENARIO_EVENT_H_WAR_MACHINE_DEFENDED   = 62350,
+    // Our Secret Weapon (250)
+    SCENARIO_EVENT_H_ALLIANCE_DRIVEN_BACK   = 62177, // weight 2
+    SCENARIO_EVENT_H_BLIGHT_USED            = 59597, // weight 2
+    // Like Wildfire
+    SCENARIO_EVENT_H_FOLLOW_NATHANOS_KEEP   = 62178,
+    // Holding Them Back
+    SCENARIO_EVENT_H_INTERCEPT_ALLIANCE     = 62202,
+    // The King Piece (150)
+    SCENARIO_EVENT_H_DEFEAT_ANDUIN          = 62482, // weight 1
+    SCENARIO_EVENT_H_DEFEAT_ANDUIN_ALLY     = 62483, // weight 3
+    SCENARIO_EVENT_H_DEFEAT_ANDUIN_ALLY_2   = 64503, // weight 10
+    // Cry Havoc
+    SCENARIO_EVENT_H_FOLLOW_NATHANOS_SAFETY = 62203,
+    // The Dark Lady
+    SCENARIO_EVENT_H_FOLLOW_SYLVANAS        = 62204,
+};
+
+// TODO: fill from world DB (creature_template / spawns on map 1760).
+enum BattleForLordaeronNpcs
+{
+};
+
+#endif // DEF_THE_BATTLE_FOR_LORDAERON_H

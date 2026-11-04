@@ -15,16 +15,10 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "ScriptMgr.h"
-#include "CombatAI.h"
-#include "Creature.h"
-#include "CreatureGroups.h"
-#include "GameObject.h"
-#include "InstanceScript.h"
-#include "Scenario.h"
 #include "the_battle_for_lordaeron.h"
-	
+
+// Creature, GameObject, AreaTrigger and Scene scripts for the scenario go here.
+
 void AddSC_the_battle_for_lordaeron()
 {
-
 }
