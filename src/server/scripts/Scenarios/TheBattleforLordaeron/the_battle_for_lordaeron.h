@@ -127,7 +127,7 @@ enum BattleForLordaeronNpcs
 {
     NPC_HIGH_OVERLORD_SAURFANG          = 129179, // Alliance scenario enemy (hostile), despawned for Horde
     NPC_HORDE_SAURFANG                  = 124798, // friendly Horde version (faction 83)
-    NPC_ISABELLA_ORGRIMMAR              = 139093, // Orgrimmar mage, queues LFG 1759 (SmartAI)
+    NPC_ISABELLA_ORGRIMMAR              = 139093, // Orgrimmar mage, SmartAI makes the player cast 269807
     NPC_LADY_SYLVANAS_WINDRUNNER        = 124651,
     NPC_NATHANOS_BLIGHTCALLER           = 136394,
     NPC_LORTHEMAR_THERON                = 137939,
@@ -163,7 +163,7 @@ enum BattleForLordaeronGameObjects
 enum BattleForLordaeronSpells
 {
     SPELL_TELEPORT_TO_LORDAERON         = 259094,
-    SPELL_LEAVE_FOR_LORDAERON_QUEUE     = 269807,
+    SPELL_LEAVE_FOR_LORDAERON_QUEUE     = 269807, // spell_leave_for_lordaeron_queue: joins LFG 1759
     SPELL_PORTAL_SIEGE_OF_LORDAERON     = 269811,
     SPELL_LEAVE_FOR_LORDAERON           = 272129,
     SPELL_BLIGHT_GAS                    = 247450,
