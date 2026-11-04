@@ -115,10 +115,19 @@ enum BattleForLordaeronQuests
     QUEST_THE_BATTLE_FOR_LORDAERON_A    = 51795, // Alliance, next quest 52946
 };
 
+// LFGDungeons.db2 (map 1760, difficulty 12)
+enum BattleForLordaeronLfg
+{
+    LFG_DUNGEON_BATTLE_FOR_LORDAERON_A  = 1758,
+    LFG_DUNGEON_BATTLE_FOR_LORDAERON_H  = 1759,
+};
+
 // Entries spawned on map 1760 in the world DB (bfa_world-17.06.2024).
 enum BattleForLordaeronNpcs
 {
-    NPC_HIGH_OVERLORD_SAURFANG          = 129179,
+    NPC_HIGH_OVERLORD_SAURFANG          = 129179, // Alliance scenario enemy (hostile), despawned for Horde
+    NPC_HORDE_SAURFANG                  = 124798, // friendly Horde version (faction 83)
+    NPC_ISABELLA_ORGRIMMAR              = 139093, // Orgrimmar mage, queues the scenario
     NPC_LADY_SYLVANAS_WINDRUNNER        = 124651,
     NPC_NATHANOS_BLIGHTCALLER           = 136394,
     NPC_LORTHEMAR_THERON                = 137939,

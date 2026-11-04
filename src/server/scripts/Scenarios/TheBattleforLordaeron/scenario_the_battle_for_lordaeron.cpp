@@ -30,13 +30,15 @@ namespace
 {
     // Map 1760 uses the same coordinates as map 0, so every Undercity position
     // below is taken from an existing map 0 Undercity spawn (known walkable ground).
-    Position const PlayerStartPos       = { 1782.99f,  59.53f, -61.41f, 4.43f }; // Magic Quarter
+    Position const PlayerStartPos       = { 1770.206665f, 63.413601f, -46.320221f, 2.450299f }; // Magic Quarter
     Position const SaurfangMagicPos     = { 1788.19f,  57.52f, -61.41f, 3.93f };
     Position const HeartOfCityPos       = { 1599.95f, 240.65f, -52.06f, 3.14f }; // bank ring
     Position const UndercityPortalPos   = { 1591.49f, 240.33f, -52.06f, 3.04f };
     // Above ground, next to Sylvanas' static spawn (1628.46, 240.08, 63.93).
     Position const WallsArrivalPos      = { 1645.00f, 240.00f,  62.60f, 0.00f };
     Position const FrontLinePos         = { 1830.00f, 238.00f,  62.50f, 0.00f };
+    // Where the hostile (Alliance scenario) Saurfang stands; the Horde one starts here.
+    Position const WallsSaurfangPos     = { 1744.64f, 238.92f,  62.13f, 6.26f };
 
     Position const ElevatorPositions[] =
     {
@@ -134,7 +136,7 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             return;
 
         _started = true;
-        if (TempSummon* saurfang = instance->SummonCreature(NPC_HIGH_OVERLORD_SAURFANG, SaurfangMagicPos))
+        if (TempSummon* saurfang = instance->SummonCreature(NPC_HORDE_SAURFANG, SaurfangMagicPos))
             _undercitySaurfangGuid = saurfang->GetGUID();
 
         _scheduler.Schedule(1s, [this](TaskContext context)
@@ -148,9 +150,17 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     {
         InstanceScript::OnCreatureCreate(creature);
 
-        // Remember the static (above ground) Saurfang, not the Undercity one we summon.
-        if (creature->GetEntry() == NPC_HIGH_OVERLORD_SAURFANG && !creature->IsSummon())
-            _wallsSaurfangGuid = creature->GetGUID();
+        // The static Saurfang on map 1760 is the Alliance scenario boss and is hostile
+        // to Horde players, so remove him from the Horde scenario.
+        if (creature->GetEntry() == NPC_HIGH_OVERLORD_SAURFANG && IsHordeScenario())
+        {
+            ObjectGuid guid = creature->GetGUID();
+            _scheduler.Schedule(1ms, [this, guid](TaskContext /*context*/)
+            {
+                if (Creature* hostileSaurfang = instance->GetCreature(guid))
+                    hostileSaurfang->DespawnOrUnsummon();
+            });
+        }
     }
 
     void Update(uint32 diff) override
@@ -331,8 +341,9 @@ private:
         if (Creature* saurfang = instance->GetCreature(_undercitySaurfangGuid))
             saurfang->DespawnOrUnsummon();
 
-        if (Creature* saurfang = instance->GetCreature(_wallsSaurfangGuid))
+        if (TempSummon* saurfang = instance->SummonCreature(NPC_HORDE_SAURFANG, WallsSaurfangPos))
         {
+            _wallsSaurfangGuid = saurfang->GetGUID();
             saurfang->SetWalk(false);
             saurfang->GetMotionMaster()->MovePoint(0, FrontLinePos);
             saurfang->SetHomePosition(FrontLinePos);
