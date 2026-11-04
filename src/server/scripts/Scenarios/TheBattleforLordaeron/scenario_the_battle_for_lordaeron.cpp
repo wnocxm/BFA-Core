@@ -105,6 +105,9 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     // One respawning spawn point. Killing (or evacuating) its creature sends EventId.
     struct SpawnSlot
     {
+        SpawnSlot(uint32 entry, Position const& pos, uint32 eventId, bool hostile)
+            : Entry(entry), Pos(pos), EventId(eventId), Hostile(hostile) { }
+
         uint32 Entry;
         Position Pos;
         uint32 EventId;
@@ -267,8 +270,8 @@ private:
         for (Position const& pos : MagicQuarterSpyPositions)
         {
             bool operative = (index++ % 2) == 0;
-            _spySlots.push_back({ operative ? NPC_SI7_OPERATIVE : NPC_GILNEAN_MAULER, pos,
-                operative ? SCENARIO_EVENT_H_MAGE_DISTRICT_A : SCENARIO_EVENT_H_MAGE_DISTRICT_B, true, ObjectGuid::Empty });
+            _spySlots.emplace_back(operative ? uint32(NPC_SI7_OPERATIVE) : uint32(NPC_GILNEAN_MAULER), pos,
+                operative ? uint32(SCENARIO_EVENT_H_MAGE_DISTRICT_A) : uint32(SCENARIO_EVENT_H_MAGE_DISTRICT_B), true);
         }
         SpawnSlots(_spySlots);
     }
@@ -304,12 +307,12 @@ private:
     {
         _citizenSlots.clear();
         for (Position const& pos : CitizenPositions)
-            _citizenSlots.push_back({ NPC_FORSAKEN_REFUGEE, pos, SCENARIO_EVENT_H_EVACUATE_CITIZEN, false, ObjectGuid::Empty });
+            _citizenSlots.emplace_back(NPC_FORSAKEN_REFUGEE, pos, SCENARIO_EVENT_H_EVACUATE_CITIZEN, false);
         SpawnSlots(_citizenSlots);
 
         _heartAttackerSlots.clear();
         for (Position const& pos : HeartAttackerPositions)
-            _heartAttackerSlots.push_back({ NPC_STORMWIND_FOOTMAN, pos, SCENARIO_EVENT_H_EVACUATE_B, true, ObjectGuid::Empty });
+            _heartAttackerSlots.emplace_back(NPC_STORMWIND_FOOTMAN, pos, SCENARIO_EVENT_H_EVACUATE_B, true);
         SpawnSlots(_heartAttackerSlots);
     }
 
