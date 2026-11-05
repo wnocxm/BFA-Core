@@ -35,7 +35,7 @@ namespace
 {
     constexpr float REPORT_TO_SAURFANG_RANGE    = 15.0f;
     constexpr float ANASTASIA_GREET_RANGE       = 30.0f;
-    constexpr float RESCUE_RANGE                = 8.0f;
+    constexpr float RESCUE_RANGE                = 10.0f;
     constexpr float RESCUE_SPY_CLEAR_RANGE      = 10.0f;
     constexpr float EVACUATE_RANGE              = 10.0f;
     constexpr float COURTYARD_ARRIVAL_RANGE     = 25.0f;
@@ -45,6 +45,7 @@ namespace
     constexpr uint32 FIRST_SCENARIO_CREATURE_ENTRY = 130000; // lower entries are map 0 Undercity residents
 
     constexpr Milliseconds SPIES_VANISH_DELAY   = 11533ms; // "<whistles>" line of CONVERSATION_SPIES_CORNERED
+    constexpr Milliseconds REINFORCEMENTS_DELAY = 10s;
     constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
 
     // Undercity elevators, where evacuated citizens head before leaving.
@@ -125,28 +126,6 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     void Update(uint32 diff) override
     {
         _scheduler.Update(diff);
-    }
-
-    // Fires when a step's root criteria tree is completed, right before the next step starts.
-    void OnCompletedCriteriaTree(CriteriaTree const* tree) override
-    {
-        switch (tree->ID)
-        {
-            case CRITERIA_TREE_H_UNDER_SIEGE:
-                StartSpiesInOurMidst();
-                break;
-            case CRITERIA_TREE_H_SPIES_IN_OUR_MIDST:
-                StartToTheHeart();
-                break;
-            case CRITERIA_TREE_H_TO_THE_HEART:
-                StartEvacuateTheHeart();
-                break;
-            case CRITERIA_TREE_H_EVACUATE_HEART:
-                StartToBattle();
-                break;
-            default:
-                break;
-        }
     }
 
     void OnUnitDeath(Unit* unit) override
@@ -264,7 +243,7 @@ private:
     static void MakeCivilian(Creature* creature)
     {
         creature->SetReactState(REACT_PASSIVE);
-        creature->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
+        creature->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
         creature->SetNpcFlags(UNIT_NPC_FLAG_NONE);
     }
 
@@ -296,8 +275,12 @@ private:
     void StartSpiesInOurMidst()
     {
         StartConversation(CONVERSATION_SAURFANG_BRIEFING, GetSaurfang());
-
         _spies = SummonGroup(SUMMON_GROUP_SPIES);
+        SummonCaptives();
+    }
+
+    void SummonCaptives()
+    {
         _captives = SummonGroup(SUMMON_GROUP_CAPTIVES);
         for (ObjectGuid const& guid : _captives)
         {
@@ -357,11 +340,7 @@ private:
         DespawnAll(_ambush);
         DespawnAll(_captives);
 
-        _heartCitizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
-        for (ObjectGuid const& guid : _heartCitizens)
-            if (Creature* citizen = instance->GetCreature(guid))
-                MakeCivilian(citizen);
-
+        SummonHeartCitizens();
         _heartEnemies = SummonGroup(SUMMON_GROUP_HEART_ENEMIES);
 
         // The gate guards make way and move into the city.
@@ -373,6 +352,14 @@ private:
             saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_HEART);
 
         DoCastSpellOnPlayers(SPELL_EVACUATE_OVERRIDE);
+    }
+
+    void SummonHeartCitizens()
+    {
+        _heartCitizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
+        for (ObjectGuid const& guid : _heartCitizens)
+            if (Creature* citizen = instance->GetCreature(guid))
+                MakeCivilian(citizen);
     }
 
     void EvacuateCitizensNear(Player* player)
@@ -451,9 +438,95 @@ private:
 
     // ---- Per-second checks -----------------------------------------------------------
 
+    // Steps are started from here rather than from OnCompletedCriteriaTree, so they also
+    // start when a GM skips a step (.instance complete_scenario_step).
+    void OnStepChanged(uint32 stepId)
+    {
+        switch (stepId)
+        {
+            case STEP_H_SPIES_IN_OUR_MIDST:
+                StartSpiesInOurMidst();
+                break;
+            case STEP_H_TO_THE_HEART:
+                StartToTheHeart();
+                break;
+            case STEP_H_EVACUATE_HEART:
+                StartEvacuateTheHeart();
+                break;
+            case STEP_H_TO_BATTLE:
+                StartToBattle();
+                break;
+            default:
+                break;
+        }
+    }
+
+    // Weighted steps never run dry: once a kind of target is used up while the step is
+    // still running, a new group of it arrives.
+    void CheckReinforcements(uint32 stepId)
+    {
+        if (stepId == STEP_H_SPIES_IN_OUR_MIDST)
+        {
+            PruneGone(_captives);
+            if (_spies.empty())
+                ScheduleReinforcements(stepId, SUMMON_GROUP_SPIES);
+            if (_captives.empty())
+                ScheduleReinforcements(stepId, SUMMON_GROUP_CAPTIVES);
+        }
+        else if (stepId == STEP_H_EVACUATE_HEART)
+        {
+            PruneGone(_heartCitizens);
+            if (_heartEnemies.empty())
+                ScheduleReinforcements(stepId, SUMMON_GROUP_HEART_ENEMIES);
+            if (_heartCitizens.empty())
+                ScheduleReinforcements(stepId, SUMMON_GROUP_HEART_CITIZENS);
+        }
+    }
+
+    void ScheduleReinforcements(uint32 stepId, uint8 groupId)
+    {
+        if (!_pendingReinforcements.insert(groupId).second)
+            return;
+
+        _scheduler.Schedule(REINFORCEMENTS_DELAY, [this, stepId, groupId](TaskContext /*context*/)
+        {
+            _pendingReinforcements.erase(groupId);
+            if (GetCurrentStepId() != stepId)
+                return;
+
+            switch (groupId)
+            {
+                case SUMMON_GROUP_SPIES:          _spies = SummonGroup(groupId); break;
+                case SUMMON_GROUP_CAPTIVES:       SummonCaptives(); break;
+                case SUMMON_GROUP_HEART_ENEMIES:  _heartEnemies = SummonGroup(groupId); break;
+                case SUMMON_GROUP_HEART_CITIZENS: SummonHeartCitizens(); break;
+                default: break;
+            }
+        });
+    }
+
+    void PruneGone(GuidSet& guids)
+    {
+        for (auto itr = guids.begin(); itr != guids.end();)
+        {
+            Creature* creature = instance->GetCreature(*itr);
+            if (!creature || !creature->IsAlive())
+                itr = guids.erase(itr);
+            else
+                ++itr;
+        }
+    }
+
     void UpdatePlayerChecks()
     {
         uint32 stepId = GetCurrentStepId();
+        if (stepId != _currentStepId)
+        {
+            _currentStepId = stepId;
+            OnStepChanged(stepId);
+        }
+
+        CheckReinforcements(stepId);
 
         for (auto& ref : instance->GetPlayers())
         {
@@ -538,12 +611,14 @@ private:
 
     TaskScheduler _scheduler;
     bool _started = false;
+    uint32 _currentStepId = 0;
     bool _anastasiaGreeted = false;
     bool _keepPortalOpen = false;
     bool _courtyardReached = false;
     bool _frontLineReached = false;
 
     ObjectGuid _saurfangGuid;
+    std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;
     GuidSet _spies;
     GuidSet _captives;
