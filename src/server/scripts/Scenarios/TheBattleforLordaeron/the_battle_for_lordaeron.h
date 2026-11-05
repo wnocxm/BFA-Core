@@ -139,7 +139,10 @@ enum BattleForLordaeronNpcs
 
 enum BattleForLordaeronGameObjects
 {
-    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS   = 210406635, // Portcullis 278810, exit of Saurfang's room to the canals
+    // Portcullises of Saurfang's room, opened when his briefing ends.
+    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_1 = 210406635, // Portcullis 278810 (1691.11, 72.12)
+    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_2 = 210406625, // Portcullis 278768 (1731.04, 102.81)
+    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_3 = 210406656, // Portcullis 278734 (1638.82, 66.29)
 };
 
 enum BattleForLordaeronSpells
@@ -194,6 +197,7 @@ enum SaurfangPoints
 
 enum SaurfangActions
 {
+    ACTION_SAURFANG_FIGHT_ALONGSIDE     = 0, // Spies in Our Midst: follows the players and fights
     ACTION_SAURFANG_GO_TO_AMBUSH        = 1,
     ACTION_SAURFANG_GO_TO_GATE          = 2,
     ACTION_SAURFANG_GO_TO_HEART         = 3,

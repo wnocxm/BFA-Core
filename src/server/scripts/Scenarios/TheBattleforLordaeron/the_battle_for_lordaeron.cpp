@@ -27,16 +27,32 @@
 using namespace BattleForLordaeron;
 
 // 130367 - High Overlord Saurfang (Horde scenario)
-// Leads the player from the Magic Quarter to the heart of the city and later to the
-// front line. The instance script tells him where to go and hears when he arrives.
+// Spies in Our Midst: follows the players and fights whoever is in the way.
+// Afterwards he leads the way to the heart of the city and later to the front line; the
+// instance script tells him where to go and hears when he arrives.
 struct npc_lordaeron_saurfang : public ScriptedAI
 {
     npc_lordaeron_saurfang(Creature* creature) : ScriptedAI(creature) { }
 
+    static constexpr float ENGAGE_RANGE = 20.0f;
+    static constexpr float FOLLOW_DISTANCE = 3.0f;
+
+    void Reset() override
+    {
+        // The template is disarmed and not selectable; here he has to fight.
+        me->RemoveUnitFlag(UnitFlags(UNIT_FLAG_DISARMED | UNIT_FLAG_NOT_SELECTABLE));
+        me->SetReactState(REACT_AGGRESSIVE);
+    }
+
     void DoAction(int32 action) override
     {
+        _fightAlongside = action == ACTION_SAURFANG_FIGHT_ALONGSIDE;
+
         switch (action)
         {
+            case ACTION_SAURFANG_FIGHT_ALONGSIDE:
+                FollowPlayers();
+                break;
             case ACTION_SAURFANG_GO_TO_AMBUSH:
                 MoveTo(POINT_SAURFANG_CANAL, SaurfangCanal);
                 break;
@@ -54,10 +70,41 @@ struct npc_lordaeron_saurfang : public ScriptedAI
         }
     }
 
+    void UpdateAI(uint32 /*diff*/) override
+    {
+        if (!UpdateVictim())
+        {
+            // Engage the closest enemy around while fighting alongside the players.
+            if (_fightAlongside)
+                if (Unit* enemy = me->SelectNearestTarget(ENGAGE_RANGE))
+                    AttackStart(enemy);
+            return;
+        }
+
+        DoMeleeAttackIfReady();
+    }
+
+    // After a fight he goes back to the players (or keeps walking) instead of
+    // returning to where he was summoned.
+    void EnterEvadeMode(EvadeReason /*why*/) override
+    {
+        me->RemoveAllAuras();
+        me->CombatStop(true);
+        me->ResetPlayerDamageReq();
+        Reset();
+
+        if (_fightAlongside)
+            FollowPlayers();
+        else if (_pendingPointId)
+            me->GetMotionMaster()->MovePoint(_pendingPointId, _pendingPoint);
+    }
+
     void MovementInform(uint32 type, uint32 pointId) override
     {
-        if (type != POINT_MOTION_TYPE)
+        if (type != POINT_MOTION_TYPE || pointId != _pendingPointId)
             return;
+
+        _pendingPointId = 0;
 
         if (pointId == POINT_SAURFANG_CANAL)
         {
@@ -77,14 +124,31 @@ struct npc_lordaeron_saurfang : public ScriptedAI
     }
 
 private:
-    // Home is moved to the destination so that, after a fight on the way, he resumes
-    // from there instead of walking back.
+    void FollowPlayers()
+    {
+        for (auto& ref : me->GetMap()->GetPlayers())
+        {
+            Player* player = ref.GetSource();
+            if (player && player->IsAlive())
+            {
+                me->GetMotionMaster()->MoveFollow(player, FOLLOW_DISTANCE, float(M_PI) / 2.0f);
+                return;
+            }
+        }
+    }
+
     void MoveTo(uint32 pointId, Position const& pos)
     {
+        _pendingPointId = pointId;
+        _pendingPoint = pos;
         me->SetHomePosition(pos);
         me->SetWalk(false);
         me->GetMotionMaster()->MovePoint(pointId, pos);
     }
+
+    bool _fightAlongside = false;
+    uint32 _pendingPointId = 0;
+    Position _pendingPoint;
 };
 
 // 269807 - Leave for Lordaeron Queue

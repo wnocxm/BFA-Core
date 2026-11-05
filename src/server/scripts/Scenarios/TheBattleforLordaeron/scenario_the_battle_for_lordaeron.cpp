@@ -128,8 +128,16 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     {
         InstanceScript::OnGameObjectCreate(go);
 
-        if (go->GetSpawnId() == GO_SPAWN_MAGIC_QUARTER_PORTCULLIS)
-            _magicQuarterPortcullisGuid = go->GetGUID();
+        switch (go->GetSpawnId())
+        {
+            case GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_1:
+            case GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_2:
+            case GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_3:
+                _magicQuarterPortcullises.insert(go->GetGUID());
+                break;
+            default:
+                break;
+        }
     }
 
     void OnPlayerExit(Player* player) override
@@ -291,6 +299,9 @@ private:
     {
         _spies = SummonGroup(SUMMON_GROUP_SPIES);
         SummonCaptives();
+
+        if (Creature* saurfang = GetSaurfang())
+            saurfang->AI()->DoAction(ACTION_SAURFANG_FIGHT_ALONGSIDE);
     }
 
     void SummonCaptives()
@@ -603,8 +614,9 @@ private:
 
         _scheduler.Schedule(SAURFANG_BRIEFING_LENGTH, [this](TaskContext /*context*/)
         {
-            if (GameObject* portcullis = instance->GetGameObject(_magicQuarterPortcullisGuid))
-                portcullis->SetGoState(GO_STATE_ACTIVE);
+            for (ObjectGuid const& guid : _magicQuarterPortcullises)
+                if (GameObject* portcullis = instance->GetGameObject(guid))
+                    portcullis->SetGoState(GO_STATE_ACTIVE);
 
             DoSendScenarioEvent(SCENARIO_EVENT_H_REPORT_TO_SAURFANG);
         });
@@ -663,7 +675,7 @@ private:
     bool _frontLineReached = false;
 
     ObjectGuid _saurfangGuid;
-    ObjectGuid _magicQuarterPortcullisGuid;
+    GuidSet _magicQuarterPortcullises;
     std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;
     GuidSet _spies;
