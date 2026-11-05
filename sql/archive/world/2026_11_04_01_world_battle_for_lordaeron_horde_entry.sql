@@ -5,7 +5,7 @@ DELETE FROM `lfg_dungeon_template` WHERE `dungeonId` = 1759;
 INSERT INTO `lfg_dungeon_template` (`dungeonId`, `name`, `position_x`, `position_y`, `position_z`, `orientation`, `requiredItemLevel`, `VerifiedBuild`) VALUES
 (1759, 'The Battle for Lordaeron (Horde)', 1770.206665, 63.413601, -46.320221, 2.450299, 0, 0);
 
--- Isabella (Orgrimmar): gossip 19870 option 1 "I am ready to sail to Lordaeron."
+-- Isabella (Orgrimmar): gossip 19870 option 1 ("I am ready to go to the Undercity.")
 -- The player casts 269807 "Leave for Lordaeron Queue"; its spell script joins LFG 1759.
 -- (SMART_ACTION_ENTER_LFG_QUEUE = 1005 does not fit in action_type, so it cannot be used.)
 -- Only adds SmartAI rows 100-101, so other gossip scripts on Isabella (e.g. the skip option) keep working.
@@ -15,10 +15,5 @@ INSERT INTO `smart_scripts` (`entryorguid`, `source_type`, `id`, `link`, `event_
 (139093, 0, 100, 101, 62, 0, 100, 0, 19870, 1, 0, 0, 0, '', 85, 269807, 2, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 'Isabella - On Gossip Option 1 Selected - Invoker Cast Leave for Lordaeron Queue (triggered)'),
 (139093, 0, 101, 0, 61, 0, 100, 0, 0, 0, 0, 0, 0, '', 72, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 'Isabella - Linked - Close Gossip');
 
--- Spell script that joins the LFG queue
-DELETE FROM `spell_script_names` WHERE `spell_id` = 269807;
-INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
-(269807, 'spell_leave_for_lordaeron_queue');
-
--- Friendly Horde Saurfang used inside the scenario (unused elsewhere, was level 1)
-UPDATE `creature_template` SET `minlevel` = 120, `maxlevel` = 120, `HealthScalingExpansion` = 7 WHERE `entry` = 124798;
+-- The spell script that joins the LFG queue is registered in
+-- 2026_11_05_00_world_battle_for_lordaeron_undercity.sql.

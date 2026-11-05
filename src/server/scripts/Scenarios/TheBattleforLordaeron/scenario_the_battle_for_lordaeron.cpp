@@ -16,156 +16,110 @@
  */
 
 #include "the_battle_for_lordaeron.h"
+#include "Conversation.h"
+#include "CreatureAI.h"
 #include "DBCEnums.h"
 #include "InstanceScenario.h"
-#include "Log.h"
 #include "Map.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "PhasingHandler.h"
 #include "Player.h"
 #include "TaskScheduler.h"
 #include "TemporarySummon.h"
 
+using namespace BattleForLordaeron;
+
 namespace
 {
-    // Map 1760 uses the same coordinates as map 0, so every Undercity position
-    // below is taken from an existing map 0 Undercity spawn (known walkable ground).
-    Position const PlayerStartPos       = { 1770.206665f, 63.413601f, -46.320221f, 2.450299f }; // Magic Quarter
-    Position const SaurfangMagicPos     = { 1788.19f,  57.52f, -61.41f, 3.93f };
-    Position const HeartOfCityPos       = { 1599.95f, 240.65f, -52.06f, 3.14f }; // bank ring
-    Position const UndercityPortalPos   = { 1591.49f, 240.33f, -52.06f, 3.04f };
-    // Above ground, next to Sylvanas' static spawn (1628.46, 240.08, 63.93).
-    Position const WallsArrivalPos      = { 1645.00f, 240.00f,  62.60f, 0.00f };
-    Position const FrontLinePos         = { 1830.00f, 238.00f,  62.50f, 0.00f };
-    // Where the hostile (Alliance scenario) Saurfang stands; the Horde one starts here.
-    Position const WallsSaurfangPos     = { 1744.64f, 238.92f,  62.13f, 6.26f };
+    constexpr float REPORT_TO_SAURFANG_RANGE    = 15.0f;
+    constexpr float ANASTASIA_GREET_RANGE       = 30.0f;
+    constexpr float RESCUE_RANGE                = 8.0f;
+    constexpr float RESCUE_SPY_CLEAR_RANGE      = 10.0f;
+    constexpr float EVACUATE_RANGE              = 10.0f;
+    constexpr float COURTYARD_ARRIVAL_RANGE     = 25.0f;
+    constexpr float FRONT_LINE_RANGE            = 15.0f;
+    constexpr float START_TELEPORT_RANGE        = 40.0f;
+    constexpr uint32 FACTION_SCENARIO_ENEMY     = 2502;
+    constexpr uint32 FIRST_SCENARIO_CREATURE_ENTRY = 130000; // lower entries are map 0 Undercity residents
 
-    Position const ElevatorPositions[] =
+    constexpr Milliseconds SPIES_VANISH_DELAY   = 11533ms; // "<whistles>" line of CONVERSATION_SPIES_CORNERED
+    constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
+
+    // Undercity elevators, where evacuated citizens head before leaving.
+    Position const HeartExits[] =
     {
+        { 1544.24f, 240.77f, -40.78f, 0.0f },
         { 1595.26f, 188.64f, -40.78f, 0.0f },
         { 1596.21f, 302.40f, -40.66f, 0.0f },
     };
-
-    Position const MagicQuarterSpyPositions[] =
-    {
-        { 1766.35f,  65.66f, -46.24f, 5.39f },
-        { 1775.00f,  51.00f, -61.41f, 6.21f },
-        { 1775.98f,  46.13f, -61.41f, 0.89f },
-        { 1776.40f,  20.25f, -47.31f, 1.94f },
-        { 1776.60f,  79.05f, -59.25f, 2.29f },
-        { 1778.19f,  65.48f, -46.24f, 2.79f },
-        { 1780.31f,  44.04f, -61.41f, 1.33f },
-        { 1791.48f,  53.41f, -61.41f, 2.95f },
-        { 1813.74f,  56.41f, -47.30f, 3.05f },
-    };
-
-    // Upper ring of the city heart.
-    Position const CitizenPositions[] =
-    {
-        { 1543.83f, 222.60f, -42.98f, 4.97f },
-        { 1554.30f, 257.97f, -43.02f, 5.93f },
-        { 1558.67f, 243.31f, -43.02f, 0.02f },
-        { 1564.76f, 209.60f, -43.02f, 0.77f },
-        { 1566.80f, 275.30f, -43.02f, 5.38f },
-        { 1572.02f, 287.89f, -43.02f, 0.45f },
-        { 1579.65f, 193.26f, -43.02f, 1.57f },
-        { 1610.45f, 283.26f, -43.02f, 4.92f },
-        { 1612.13f, 189.22f, -43.02f, 0.47f },
-        { 1623.77f, 272.45f, -43.02f, 4.56f },
-        { 1627.97f, 204.57f, -43.02f, 2.23f },
-        { 1637.61f, 239.54f, -43.02f, 3.11f },
-    };
-
-    // Lower ring of the city heart.
-    Position const HeartAttackerPositions[] =
-    {
-        { 1542.40f, 225.16f, -56.79f, 5.24f },
-        { 1542.45f, 255.20f, -56.79f, 1.01f },
-        { 1579.11f, 187.98f, -56.79f, 2.64f },
-        { 1580.67f, 293.06f, -56.79f, 3.35f },
-        { 1590.47f, 277.01f, -55.26f, 5.45f },
-        { 1591.05f, 208.10f, -55.26f, 4.76f },
-        { 1602.13f, 275.44f, -55.26f, 5.72f },
-        { 1601.69f, 203.62f, -55.26f, 2.34f },
-        { 1609.71f, 187.18f, -56.79f, 0.05f },
-        { 1605.35f, 244.58f, -52.15f, 6.05f },
-    };
-
-    constexpr uint32 FACTION_MONSTER            = 14;
-    constexpr float  REPORT_TO_SAURFANG_RANGE   = 8.0f;
-    constexpr float  HEART_REACHED_RANGE        = 20.0f;
-    constexpr float  SAURFANG_ARRIVED_RANGE     = 6.0f;
-    constexpr float  EVACUATE_RANGE             = 5.0f;
-    constexpr float  PORTAL_USE_RANGE           = 3.0f;
-    constexpr float  FRONT_LINE_RANGE           = 15.0f;
-    constexpr float  START_TELEPORT_RANGE       = 40.0f;
 }
 
 struct scenario_the_battle_for_lordaeron : public InstanceScript
 {
     scenario_the_battle_for_lordaeron(InstanceMap* map) : InstanceScript(map) { }
 
-    // One respawning spawn point. Killing (or evacuating) its creature sends EventId.
-    struct SpawnSlot
+    // The static spawns of map 1760 show the battle from the Alliance scenario's point of
+    // view. The Horde scenario summons its own creatures step by step instead.
+    uint32 GetCreatureEntry(ObjectGuid::LowType /*spawnId*/, CreatureData const* data) override
     {
-        SpawnSlot(uint32 entry, Position const& pos, uint32 eventId, bool hostile)
-            : Entry(entry), Pos(pos), EventId(eventId), Hostile(hostile) { }
-
-        uint32 Entry;
-        Position Pos;
-        uint32 EventId;
-        bool Hostile;
-        ObjectGuid Guid;
-    };
+        return IsHordeScenario() ? 0 : data->id;
+    }
 
     void OnPlayerEnter(Player* player) override
     {
         InstanceScript::OnPlayerEnter(player);
 
-        if (!IsHordeScenario() || GetCurrentStepId() != STEP_H_UNDER_SIEGE)
+        if (!IsHordeScenario())
             return;
 
-        // The Horde scenario starts inside the Undercity. LFG already puts the player
-        // there (lfg_dungeon_template); only move players who entered somewhere else
-        // (e.g. with .go). Teleporting again during the loading screen leaves the
-        // client floating in the air.
-        ObjectGuid playerGuid = player->GetGUID();
-        _scheduler.Schedule(5s, [this, playerGuid](TaskContext /*context*/)
+        // LFG already places the player at the start (lfg_dungeon_template); only move
+        // players who entered elsewhere, after the loading screen.
+        if (GetCurrentStepId() == STEP_H_UNDER_SIEGE)
         {
-            if (Player* p = ObjectAccessor::GetPlayer(instance, playerGuid))
-                if (!p->IsBeingTeleported() && p->GetDistance(PlayerStartPos) > START_TELEPORT_RANGE)
-                    p->NearTeleportTo(PlayerStartPos);
-        });
+            ObjectGuid playerGuid = player->GetGUID();
+            _scheduler.Schedule(5s, [this, playerGuid](TaskContext /*context*/)
+            {
+                if (Player* p = ObjectAccessor::GetPlayer(instance, playerGuid))
+                    if (!p->IsBeingTeleported() && p->GetDistance(PlayerStartPos) > START_TELEPORT_RANGE)
+                        p->NearTeleportTo(PlayerStartPos);
+            });
+        }
+
+        if (GetCurrentStepId() == STEP_H_EVACUATE_HEART)
+            player->CastSpell(player, SPELL_EVACUATE_OVERRIDE, true);
 
         if (_started)
             return;
 
         _started = true;
-        if (TempSummon* saurfang = instance->SummonCreature(NPC_HORDE_SAURFANG, SaurfangMagicPos))
-            _undercitySaurfangGuid = saurfang->GetGUID();
+        // Original Undercity residents (map 0 entries) are civilians; the scenario's own
+        // Horde soldiers (130000+) fight.
+        for (ObjectGuid const& guid : SummonGroup(SUMMON_GROUP_MAGIC_QUARTER))
+            if (Creature* creature = instance->GetCreature(guid))
+                if (creature->GetEntry() < FIRST_SCENARIO_CREATURE_ENTRY)
+                    MakeCivilian(creature);
+
+        _magicQuarterCitizens = SummonGroup(SUMMON_GROUP_MAGIC_QUARTER_EVAC);
+        for (ObjectGuid const& guid : _magicQuarterCitizens)
+            if (Creature* creature = instance->GetCreature(guid))
+                MakeCivilian(creature);
+
+        if (Creature* saurfang = Summon(NPC_SAURFANG, SaurfangMagicQuarter))
+            _saurfangGuid = saurfang->GetGUID();
 
         _scheduler.Schedule(1s, [this](TaskContext context)
         {
-            UpdateProximityEvents();
+            UpdatePlayerChecks();
             context.Repeat(1s);
         });
     }
 
-    void OnCreatureCreate(Creature* creature) override
+    void OnPlayerExit(Player* player) override
     {
-        InstanceScript::OnCreatureCreate(creature);
-
-        // The static Saurfang on map 1760 is the Alliance scenario boss and is hostile
-        // to Horde players, so remove him from the Horde scenario.
-        if (creature->GetEntry() == NPC_HIGH_OVERLORD_SAURFANG && IsHordeScenario())
-        {
-            ObjectGuid guid = creature->GetGUID();
-            _scheduler.Schedule(1ms, [this, guid](TaskContext /*context*/)
-            {
-                if (Creature* hostileSaurfang = instance->GetCreature(guid))
-                    hostileSaurfang->DespawnOrUnsummon();
-            });
-        }
+        InstanceScript::OnPlayerExit(player);
+        player->RemoveAurasDueToSpell(SPELL_EVACUATE_OVERRIDE);
     }
 
     void Update(uint32 diff) override
@@ -173,32 +127,23 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         _scheduler.Update(diff);
     }
 
-    // Fires when a step's root criteria tree is completed, i.e. right before
-    // the scenario moves to the next step. Used to set up the next step.
+    // Fires when a step's root criteria tree is completed, right before the next step starts.
     void OnCompletedCriteriaTree(CriteriaTree const* tree) override
     {
         switch (tree->ID)
         {
-            case CRITERIA_TREE_H_UNDER_SIEGE:        // -> Spies in Our Midst
+            case CRITERIA_TREE_H_UNDER_SIEGE:
                 StartSpiesInOurMidst();
                 break;
-            case CRITERIA_TREE_H_SPIES_IN_OUR_MIDST: // -> To the Heart!
-                DespawnSlots(_spySlots);
+            case CRITERIA_TREE_H_SPIES_IN_OUR_MIDST:
                 StartToTheHeart();
                 break;
-            case CRITERIA_TREE_H_TO_THE_HEART:       // -> Evacuate the Heart of the City
-                StartEvacuateHeart();
+            case CRITERIA_TREE_H_TO_THE_HEART:
+                StartEvacuateTheHeart();
                 break;
-            case CRITERIA_TREE_H_EVACUATE_HEART:     // -> To Battle! (portal)
-                DespawnSlots(_citizenSlots);
-                DespawnSlots(_heartAttackerSlots);
+            case CRITERIA_TREE_H_EVACUATE_HEART:
                 StartToBattle();
                 break;
-            case CRITERIA_TREE_H_TO_BATTLE:          // -> Push Them Back
-                if (Creature* portal = instance->GetCreature(_portalGuid))
-                    portal->DespawnOrUnsummon();
-                break;
-            // TODO: steps from Push Them Back onwards (above ground).
             default:
                 break;
         }
@@ -210,49 +155,52 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         if (!creature)
             return;
 
-        for (std::vector<SpawnSlot>* slots : { &_spySlots, &_heartAttackerSlots })
+        ObjectGuid guid = creature->GetGUID();
+        if (_spies.erase(guid))
+            DoSendScenarioEvent(SCENARIO_EVENT_H_SPY_KILLED);
+        else if (_heartEnemies.erase(guid))
+            DoSendScenarioEvent(SCENARIO_EVENT_H_HEART_ENEMY_KILLED);
+        else if (_druids.erase(guid) && _druids.empty() && GetCurrentStepId() == STEP_H_TO_THE_HEART)
         {
-            for (size_t i = 0; i < slots->size(); ++i)
-            {
-                SpawnSlot& slot = (*slots)[i];
-                if (slot.Guid != creature->GetGUID())
-                    continue;
-
-                slot.Guid.Clear();
-                DoSendScenarioEvent(slot.EventId);
-                ScheduleRespawn(*slots, i, 15s);
-                return;
-            }
+            DoSendScenarioEvent(SCENARIO_EVENT_H_AMBUSH_CLEARED);
+            if (Creature* saurfang = GetSaurfang())
+                saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_GATE);
         }
     }
 
-    // Creature/GameObject/AreaTrigger scripts can call instance->SetData(SCENARIO_EVENT_*, 1)
-    // to progress the scenario from one place.
-    void SetData(uint32 type, uint32 /*value*/) override
+    void SetData(uint32 type, uint32 value) override
     {
+        if (type != DATA_SAURFANG_REACHED)
+            return;
+
+        switch (value)
+        {
+            case POINT_SAURFANG_AMBUSH:
+                OnSaurfangReachedAmbush();
+                break;
+            case POINT_SAURFANG_GATE:
+                StartConversation(CONVERSATION_OPEN_THE_GATE, GetSaurfang());
+                DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
+                break;
+            default:
+                break;
+        }
+    }
+
+    void SetGuidData(uint32 type, ObjectGuid data) override
+    {
+        Player* player = ObjectAccessor::GetPlayer(instance, data);
+        if (!player)
+            return;
+
         switch (type)
         {
-            case SCENARIO_EVENT_H_REPORT_TO_SAURFANG:
-            case SCENARIO_EVENT_H_MAGE_DISTRICT_A:
-            case SCENARIO_EVENT_H_MAGE_DISTRICT_B:
-            case SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART:
-            case SCENARIO_EVENT_H_HEART_REACHED:
-            case SCENARIO_EVENT_H_EVACUATE_CITIZEN:
-            case SCENARIO_EVENT_H_EVACUATE_B:
-            case SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE:
-            case SCENARIO_EVENT_H_ALLIANCE_DEFEATED:
-            case SCENARIO_EVENT_H_WAVE_DEFEATED:
-            case SCENARIO_EVENT_H_WAR_MACHINE_DEFENDED:
-            case SCENARIO_EVENT_H_ALLIANCE_DRIVEN_BACK:
-            case SCENARIO_EVENT_H_BLIGHT_USED:
-            case SCENARIO_EVENT_H_FOLLOW_NATHANOS_KEEP:
-            case SCENARIO_EVENT_H_INTERCEPT_ALLIANCE:
-            case SCENARIO_EVENT_H_DEFEAT_ANDUIN:
-            case SCENARIO_EVENT_H_DEFEAT_ANDUIN_ALLY:
-            case SCENARIO_EVENT_H_DEFEAT_ANDUIN_ALLY_2:
-            case SCENARIO_EVENT_H_FOLLOW_NATHANOS_SAFETY:
-            case SCENARIO_EVENT_H_FOLLOW_SYLVANAS:
-                DoSendScenarioEvent(type);
+            case DATA_EVACUATE_NEAR:
+                EvacuateCitizensNear(player);
+                break;
+            case DATA_PLAYER_USED_KEEP_PORTAL:
+                // "Use the Portal" is a CRITERIA_TYPE_SEND_EVENT criteria.
+                player->UpdateCriteria(CRITERIA_TYPE_SEND_EVENT, GAME_EVENT_H_USE_PORTAL);
                 break;
             default:
                 break;
@@ -274,228 +222,337 @@ private:
         return 0;
     }
 
-    // ---- Step setup ----------------------------------------------------
+    Creature* GetSaurfang() const { return instance->GetCreature(_saurfangGuid); }
 
-    // Spies in Our Midst: 120 points. SI:7 Operatives give 4, Gilnean Maulers give 3.
-    // Slots respawn while the step is active, so the exact count does not matter.
-    void StartSpiesInOurMidst()
+    // ---- Summons ---------------------------------------------------------------------
+
+    // Summons with the position snapped to the floor right below it, so a slightly
+    // wrong height never leaves a creature floating.
+    Creature* Summon(uint32 entry, Position pos)
     {
-        _spySlots.clear();
-        uint32 index = 0;
-        for (Position const& pos : MagicQuarterSpyPositions)
-        {
-            bool operative = (index++ % 2) == 0;
-            _spySlots.emplace_back(operative ? uint32(NPC_SI7_OPERATIVE) : uint32(NPC_GILNEAN_MAULER), pos,
-                operative ? uint32(SCENARIO_EVENT_H_MAGE_DISTRICT_A) : uint32(SCENARIO_EVENT_H_MAGE_DISTRICT_B), true);
-        }
-        SpawnSlots(_spySlots);
+        float groundZ = instance->GetHeight(PhasingHandler::GetEmptyPhaseShift(), pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ() + 2.0f, true, 10.0f);
+        if (groundZ > INVALID_HEIGHT)
+            pos.m_positionZ = groundZ;
+
+        TempSummon* summon = instance->SummonCreature(entry, pos);
+        if (summon)
+            summon->SetHomePosition(pos);
+        return summon;
     }
 
-    // To the Heart!: Saurfang walks to the bank ring; the player has to get there too.
-    void StartToTheHeart()
+    // creature_summon_groups (map 1760). Summoned one by one instead of with
+    // Map::SummonCreatureGroup so the members do not form a formation.
+    GuidSet SummonGroup(uint8 groupId)
     {
-        _saurfangArrivedAtHeart = false;
-        _playerReachedHeart = false;
+        GuidSet guids;
+        if (std::vector<TempSummonData> const* data = sObjectMgr->GetSummonGroup(MAP_LORDAERON_SCENARIO, SUMMONER_TYPE_MAP, groupId))
+            for (TempSummonData const& summonData : *data)
+                if (Creature* creature = Summon(summonData.entry, summonData.pos))
+                    guids.insert(creature->GetGUID());
+        return guids;
+    }
 
-        Creature* saurfang = instance->GetCreature(_undercitySaurfangGuid);
-        if (!saurfang)
+    void DespawnAll(GuidSet& guids)
+    {
+        for (ObjectGuid const& guid : guids)
+            if (Creature* creature = instance->GetCreature(guid))
+                creature->DespawnOrUnsummon();
+        guids.clear();
+    }
+
+    // Citizens are never attacked and never fight back.
+    static void MakeCivilian(Creature* creature)
+    {
+        creature->SetReactState(REACT_PASSIVE);
+        creature->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
+        creature->SetNpcFlags(UNIT_NPC_FLAG_NONE);
+    }
+
+    void StartConversation(uint32 conversationId, Unit* creator)
+    {
+        if (!creator)
             return;
 
-        saurfang->SetWalk(false);
-        saurfang->GetMotionMaster()->MovePoint(0, HeartOfCityPos);
+        GuidUnorderedSet participants;
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                participants.insert(player->GetGUID());
 
-        // Fallback if pathing fails (e.g. no mmaps for map 1760).
-        ObjectGuid guid = _undercitySaurfangGuid;
-        _scheduler.Schedule(90s, [this, guid](TaskContext /*context*/)
+        Conversation::CreateConversation(conversationId, creator, *creator, std::move(participants));
+    }
+
+    // Sends a civilian to the nearest exit and removes it there.
+    static void LeaveTowards(Creature* creature, Position const& exit)
+    {
+        creature->SetEmoteState(EMOTE_STATE_NONE);
+        creature->SetWalk(false);
+        creature->GetMotionMaster()->MovePoint(0, exit);
+        creature->DespawnOrUnsummon(8s);
+    }
+
+    // ---- Steps -----------------------------------------------------------------------
+
+    // Spies in Our Midst: kill SI:7 Operatives and free the citizens they hold.
+    void StartSpiesInOurMidst()
+    {
+        StartConversation(CONVERSATION_SAURFANG_BRIEFING, GetSaurfang());
+
+        _spies = SummonGroup(SUMMON_GROUP_SPIES);
+        _captives = SummonGroup(SUMMON_GROUP_CAPTIVES);
+        for (ObjectGuid const& guid : _captives)
         {
-            if (GetCurrentStepId() != STEP_H_TO_THE_HEART)
-                return;
-            if (Creature* s = instance->GetCreature(guid))
-                if (s->GetDistance(HeartOfCityPos) > SAURFANG_ARRIVED_RANGE)
-                    s->NearTeleportTo(HeartOfCityPos);
+            if (Creature* captive = instance->GetCreature(guid))
+            {
+                MakeCivilian(captive);
+                captive->SetEmoteState(EMOTE_STATE_COWER);
+            }
+        }
+    }
+
+    // To the Heart!: Saurfang leads the way through the canals, finds Mirabelle and
+    // Renzik cornered, they escape and the Druids of the Claw attack.
+    void StartToTheHeart()
+    {
+        DespawnAll(_spies);
+        _ambush = SummonGroup(SUMMON_GROUP_AMBUSH);
+        // Mirabelle and Renzik stay put until they escape during the conversation.
+        for (ObjectGuid const& guid : _ambush)
+            if (Creature* creature = instance->GetCreature(guid))
+                if (creature->GetEntry() == NPC_MIRABELLE || creature->GetEntry() == NPC_RENZIK_THE_SHIV)
+                    MakeCivilian(creature);
+        _gateGuards = SummonGroup(SUMMON_GROUP_GATE_GUARDS);
+        if (Creature* saurfang = GetSaurfang())
+            saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_AMBUSH);
+    }
+
+    void OnSaurfangReachedAmbush()
+    {
+        StartConversation(CONVERSATION_SPIES_CORNERED, GetSaurfang());
+
+        _scheduler.Schedule(SPIES_VANISH_DELAY, [this](TaskContext /*context*/)
+        {
+            // Mirabelle and Renzik vanish; the Royal Dreadguards stay at the corner.
+            for (ObjectGuid const& guid : _ambush)
+                if (Creature* creature = instance->GetCreature(guid))
+                    if (creature->GetEntry() == NPC_MIRABELLE || creature->GetEntry() == NPC_RENZIK_THE_SHIV)
+                        creature->DespawnOrUnsummon();
+
+            _druids = SummonGroup(SUMMON_GROUP_DRUIDS);
+            for (ObjectGuid const& guid : _druids)
+            {
+                if (Creature* druid = instance->GetCreature(guid))
+                {
+                    druid->SetFaction(FACTION_SCENARIO_ENEMY);
+                    if (druid->GetEntry() == NPC_DRUID_OF_THE_CLAW_LEADER)
+                        StartConversation(CONVERSATION_DRUIDS_ATTACK, druid);
+                }
+            }
         });
     }
 
-    // Evacuate the Heart of the City: 110 points. Each evacuated citizen gives 2,
-    // each Alliance attacker killed gives 3.
-    void StartEvacuateHeart()
+    // Evacuate the Heart of the City: the gate opens, citizens are sent away with the
+    // "Evacuate!" ability and the infiltrators are cut down.
+    void StartEvacuateTheHeart()
     {
-        _citizenSlots.clear();
-        for (Position const& pos : CitizenPositions)
-            _citizenSlots.emplace_back(NPC_FORSAKEN_REFUGEE, pos, SCENARIO_EVENT_H_EVACUATE_CITIZEN, false);
-        SpawnSlots(_citizenSlots);
+        DespawnAll(_ambush);
+        DespawnAll(_captives);
 
-        _heartAttackerSlots.clear();
-        for (Position const& pos : HeartAttackerPositions)
-            _heartAttackerSlots.emplace_back(NPC_STORMWIND_FOOTMAN, pos, SCENARIO_EVENT_H_EVACUATE_B, true);
-        SpawnSlots(_heartAttackerSlots);
+        _heartCitizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
+        for (ObjectGuid const& guid : _heartCitizens)
+            if (Creature* citizen = instance->GetCreature(guid))
+                MakeCivilian(citizen);
+
+        _heartEnemies = SummonGroup(SUMMON_GROUP_HEART_ENEMIES);
+
+        // The gate guards make way and move into the city.
+        for (ObjectGuid const& guid : _gateGuards)
+            if (Creature* guard = instance->GetCreature(guid))
+                guard->GetMotionMaster()->MovePoint(0, SaurfangHeart);
+
+        if (Creature* saurfang = GetSaurfang())
+            saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_HEART);
+
+        DoCastSpellOnPlayers(SPELL_EVACUATE_OVERRIDE);
     }
 
-    // To Battle!: a portal in the heart takes the player up to Sylvanas, then
-    // Saurfang leads the way to the front line.
+    void EvacuateCitizensNear(Player* player)
+    {
+        if (GetCurrentStepId() != STEP_H_EVACUATE_HEART)
+            return;
+
+        for (auto itr = _heartCitizens.begin(); itr != _heartCitizens.end();)
+        {
+            Creature* citizen = instance->GetCreature(*itr);
+            if (!citizen || !player->IsWithinDist(citizen, EVACUATE_RANGE))
+            {
+                ++itr;
+                continue;
+            }
+
+            itr = _heartCitizens.erase(itr);
+            DoSendScenarioEvent(SCENARIO_EVENT_H_CITIZEN_EVACUATED);
+            LeaveTowards(citizen, *std::min_element(std::begin(HeartExits), std::end(HeartExits), [citizen](Position const& a, Position const& b)
+            {
+                return citizen->GetExactDistSq(a) < citizen->GetExactDistSq(b);
+            }));
+        }
+    }
+
+    // To Battle!: Anastasia opens a portal to the keep, where Sylvanas waits.
     void StartToBattle()
     {
-        _reachedFrontLine = false;
+        DoRemoveAurasDueToSpellOnPlayers(SPELL_EVACUATE_OVERRIDE);
+        DespawnAll(_heartEnemies);
 
-        if (TempSummon* portal = instance->SummonCreature(NPC_UNDERCITY_PORTAL, UndercityPortalPos))
+        Creature* saurfang = GetSaurfang();
+        StartConversation(CONVERSATION_PORTAL_TO_THE_KEEP, saurfang);
+
+        if (Creature* anastasia = Summon(NPC_ANASTASIA_HARTWELL, AnastasiaHeart))
+            MakeCivilian(anastasia);
+
+        _scheduler.Schedule(5s, [this](TaskContext /*context*/)
         {
-            _portalGuid = portal->GetGUID();
-            portal->SetUnitFlags(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
-        }
+            if (Creature* portal = Summon(NPC_PORTAL_TO_THE_KEEP, KeepPortal))
+            {
+                portal->SetNpcFlags(UNIT_NPC_FLAG_SPELLCLICK);
+                _keepPortalOpen = true;
+            }
+        });
 
-        if (Creature* saurfang = instance->GetCreature(_undercitySaurfangGuid))
-            saurfang->DespawnOrUnsummon();
-
-        if (TempSummon* saurfang = instance->SummonCreature(NPC_HORDE_SAURFANG, WallsSaurfangPos))
-        {
-            _wallsSaurfangGuid = saurfang->GetGUID();
-            saurfang->SetWalk(false);
-            saurfang->GetMotionMaster()->MovePoint(0, FrontLinePos);
-            saurfang->SetHomePosition(FrontLinePos);
-        }
+        _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
     }
 
-    // ---- Per-second checks -----------------------------------------------
+    void OnFirstPlayerInCourtyard()
+    {
+        // Saurfang came through the portal as well.
+        if (Creature* saurfang = GetSaurfang())
+            saurfang->DespawnOrUnsummon();
 
-    void UpdateProximityEvents()
+        Creature* saurfang = Summon(NPC_SAURFANG, SaurfangCourtyard);
+        if (!saurfang)
+            return;
+
+        _saurfangGuid = saurfang->GetGUID();
+
+        Creature* sylvanas = nullptr;
+        for (ObjectGuid const& guid : _courtyard)
+            if (Creature* creature = instance->GetCreature(guid))
+                if (creature->GetEntry() == NPC_SYLVANAS)
+                    sylvanas = creature;
+
+        StartConversation(CONVERSATION_UNDERCITY_EVACUATED, sylvanas ? sylvanas : saurfang);
+
+        _scheduler.Schedule(UNDERCITY_EVACUATED_LENGTH, [this](TaskContext /*context*/)
+        {
+            if (Creature* s = GetSaurfang())
+                s->AI()->DoAction(ACTION_SAURFANG_GO_TO_FRONT_LINE);
+        });
+    }
+
+    // ---- Per-second checks -----------------------------------------------------------
+
+    void UpdatePlayerChecks()
     {
         uint32 stepId = GetCurrentStepId();
 
         for (auto& ref : instance->GetPlayers())
         {
             Player* player = ref.GetSource();
-            if (!player || !player->IsAlive())
+            if (!player || !player->IsAlive() || player->IsBeingTeleported())
                 continue;
+
+            if (!_anastasiaGreeted)
+                GreetFromAnastasia(player);
 
             switch (stepId)
             {
                 case STEP_H_UNDER_SIEGE:
-                    if (Creature* saurfang = instance->GetCreature(_undercitySaurfangGuid))
+                    if (Creature* saurfang = GetSaurfang())
                         if (player->IsWithinDist(saurfang, REPORT_TO_SAURFANG_RANGE))
                             DoSendScenarioEvent(SCENARIO_EVENT_H_REPORT_TO_SAURFANG);
                     break;
-                case STEP_H_TO_THE_HEART:
-                    if (!_playerReachedHeart && player->GetDistance(HeartOfCityPos) <= HEART_REACHED_RANGE)
-                    {
-                        _playerReachedHeart = true;
-                        DoSendScenarioEvent(SCENARIO_EVENT_H_HEART_REACHED);
-                    }
-                    break;
-                case STEP_H_EVACUATE_HEART:
-                    EvacuateCitizensNear(player);
-                    break;
-                case STEP_H_TO_BATTLE:
-                    if (Creature* portal = instance->GetCreature(_portalGuid))
-                    {
-                        if (player->IsWithinDist(portal, PORTAL_USE_RANGE))
-                        {
-                            // "Use the Portal" is a CRITERIA_TYPE_SEND_EVENT criteria, not a scenario event.
-                            player->UpdateCriteria(CRITERIA_TYPE_SEND_EVENT, GAME_EVENT_H_USE_PORTAL);
-                            player->NearTeleportTo(WallsArrivalPos);
-                        }
-                    }
-                    if (!_reachedFrontLine && player->GetDistance(FrontLinePos) <= FRONT_LINE_RANGE)
-                    {
-                        _reachedFrontLine = true;
-                        DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE);
-                    }
+                case STEP_H_SPIES_IN_OUR_MIDST:
+                    RescueCaptivesNear(player);
                     break;
                 default:
                     break;
             }
-        }
 
-        if (stepId == STEP_H_TO_THE_HEART && !_saurfangArrivedAtHeart)
-        {
-            if (Creature* saurfang = instance->GetCreature(_undercitySaurfangGuid))
+            // Not tied to the step: "Follow Saurfang to battle" has amount 0 in Criteria.db2,
+            // so To Battle! may already be completed once the portal is used.
+            if (_keepPortalOpen && !_courtyardReached && player->GetDistance(CourtyardArrival) <= COURTYARD_ARRIVAL_RANGE)
             {
-                if (saurfang->GetDistance(HeartOfCityPos) <= SAURFANG_ARRIVED_RANGE)
-                {
-                    _saurfangArrivedAtHeart = true;
-                    saurfang->SetHomePosition(HeartOfCityPos);
-                    DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
-                }
+                _courtyardReached = true;
+                OnFirstPlayerInCourtyard();
+            }
+            if (_courtyardReached && !_frontLineReached && player->GetDistance(SaurfangFrontLine) <= FRONT_LINE_RANGE)
+            {
+                _frontLineReached = true;
+                DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE);
             }
         }
     }
 
-    // A citizen next to the player runs to the nearest elevator and is counted as evacuated.
-    void EvacuateCitizensNear(Player* player)
+    // "My portal is open, we must evacuate!" once the first player reaches the Magic Quarter.
+    void GreetFromAnastasia(Player* player)
     {
-        for (size_t i = 0; i < _citizenSlots.size(); ++i)
+        for (ObjectGuid const& guid : _magicQuarterCitizens)
         {
-            SpawnSlot& slot = _citizenSlots[i];
-            Creature* citizen = instance->GetCreature(slot.Guid);
-            if (!citizen || !player->IsWithinDist(citizen, EVACUATE_RANGE))
+            Creature* anastasia = instance->GetCreature(guid);
+            if (!anastasia || anastasia->GetEntry() != NPC_ANASTASIA_HARTWELL || !player->IsWithinDist(anastasia, ANASTASIA_GREET_RANGE))
                 continue;
 
-            slot.Guid.Clear();
-            DoSendScenarioEvent(slot.EventId);
-
-            Position const& elevator = citizen->GetDistance(ElevatorPositions[0]) < citizen->GetDistance(ElevatorPositions[1])
-                ? ElevatorPositions[0] : ElevatorPositions[1];
-            citizen->SetWalk(false);
-            citizen->GetMotionMaster()->MovePoint(0, elevator);
-            citizen->DespawnOrUnsummon(6s);
-
-            ScheduleRespawn(_citizenSlots, i, 30s);
+            _anastasiaGreeted = true;
+            anastasia->AI()->Talk(0);
+            return;
         }
     }
 
-    // ---- Spawn slot helpers ----------------------------------------------
-
-    void SpawnSlot_(SpawnSlot& slot)
+    // A captive is freed once no spy is left around it and a player comes close.
+    void RescueCaptivesNear(Player* player)
     {
-        if (TempSummon* summon = instance->SummonCreature(slot.Entry, slot.Pos))
+        for (auto itr = _captives.begin(); itr != _captives.end();)
         {
-            slot.Guid = summon->GetGUID();
-            if (slot.Hostile)
-                summon->SetFaction(FACTION_MONSTER);
+            Creature* captive = instance->GetCreature(*itr);
+            if (!captive || !player->IsWithinDist(captive, RESCUE_RANGE) || IsSpyNear(captive))
+            {
+                ++itr;
+                continue;
+            }
+
+            itr = _captives.erase(itr);
+            DoSendScenarioEvent(SCENARIO_EVENT_H_CITIZEN_RESCUED);
+            captive->HandleEmoteCommand(EMOTE_ONESHOT_CHEER);
+            LeaveTowards(captive, MagicQuarterPortal);
         }
     }
 
-    void SpawnSlots(std::vector<SpawnSlot>& slots)
+    bool IsSpyNear(Creature* captive) const
     {
-        for (SpawnSlot& slot : slots)
-            SpawnSlot_(slot);
-    }
-
-    void DespawnSlots(std::vector<SpawnSlot>& slots)
-    {
-        for (SpawnSlot& slot : slots)
-            if (Creature* creature = instance->GetCreature(slot.Guid))
-                creature->DespawnOrUnsummon();
-        slots.clear();
-    }
-
-    // Respawns slot `index` after `delay`, as long as the same step is still running.
-    void ScheduleRespawn(std::vector<SpawnSlot>& slots, size_t index, Milliseconds delay)
-    {
-        uint32 stepId = GetCurrentStepId();
-        std::vector<SpawnSlot>* slotsPtr = &slots;
-        _scheduler.Schedule(delay, [this, slotsPtr, index, stepId](TaskContext /*context*/)
-        {
-            if (GetCurrentStepId() != stepId || index >= slotsPtr->size())
-                return;
-            SpawnSlot& slot = (*slotsPtr)[index];
-            if (slot.Guid.IsEmpty())
-                SpawnSlot_(slot);
-        });
+        for (ObjectGuid const& guid : _spies)
+            if (Creature* spy = instance->GetCreature(guid))
+                if (spy->IsAlive() && captive->IsWithinDist(spy, RESCUE_SPY_CLEAR_RANGE))
+                    return true;
+        return false;
     }
 
     TaskScheduler _scheduler;
     bool _started = false;
-    bool _playerReachedHeart = false;
-    bool _saurfangArrivedAtHeart = false;
-    bool _reachedFrontLine = false;
+    bool _anastasiaGreeted = false;
+    bool _keepPortalOpen = false;
+    bool _courtyardReached = false;
+    bool _frontLineReached = false;
 
-    ObjectGuid _undercitySaurfangGuid;
-    ObjectGuid _wallsSaurfangGuid;
-    ObjectGuid _portalGuid;
-
-    std::vector<SpawnSlot> _spySlots;
-    std::vector<SpawnSlot> _heartAttackerSlots;
-    std::vector<SpawnSlot> _citizenSlots;
+    ObjectGuid _saurfangGuid;
+    GuidSet _magicQuarterCitizens;
+    GuidSet _spies;
+    GuidSet _captives;
+    GuidSet _ambush;
+    GuidSet _druids;
+    GuidSet _gateGuards;
+    GuidSet _heartCitizens;
+    GuidSet _heartEnemies;
+    GuidSet _courtyard;
 };
 
 void AddSC_scenario_the_battle_for_lordaeron()
