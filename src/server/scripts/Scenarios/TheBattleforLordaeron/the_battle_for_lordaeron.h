@@ -139,7 +139,7 @@ enum BattleForLordaeronNpcs
 
 enum BattleForLordaeronGameObjects
 {
-    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS   = 210406631, // Portcullis 278768 between Saurfang's hall and the canals
+    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS   = 210406635, // Portcullis 278810, exit of Saurfang's room to the canals
 };
 
 enum BattleForLordaeronSpells
@@ -205,12 +205,12 @@ namespace BattleForLordaeron
     // Map 1760 shares map 0 coordinates; Undercity positions come from map 0 spawns,
     // the rest from WorldSafeLocs and guides (see RESEARCH.md).
     Position const PlayerStartPos       = { 1770.206665f, 63.413601f, -46.320221f, 2.450299f }; // lfg_dungeon_template 1759 (WorldSafeLocs 6605 is 1770.82, 62.22)
-    Position const SaurfangMagicQuarter = { 1793.20f, 127.50f, -63.76f, 4.26f };       // next to Horde GY 1
+    Position const SaurfangMagicQuarter = { 1713.66f,  63.30f, -62.28f, 0.0f };        // placed in game
     Position const SaurfangCanal        = { 1626.63f, 130.47f, -62.07f, 3.37f };
     Position const SaurfangAmbush       = { 1600.50f, 130.50f, -62.18f, 1.57f };
     Position const SaurfangGate         = { 1596.50f, 167.00f, -62.18f, 1.57f };
     Position const SaurfangHeart        = { 1588.00f, 232.00f, -62.08f, 0.00f };
-    Position const MagicQuarterPortal   = { 1810.00f,  52.00f, -47.30f, 3.05f };
+    Position const MagicQuarterPortal   = { 1705.62f,  41.75f, -63.84f, 0.0f };        // placed in game
     Position const AnastasiaHeart       = { 1585.00f, 225.50f, -62.09f, 1.40f };
     Position const KeepPortal           = { 1582.50f, 229.00f, -62.09f, 1.40f };
     Position const CourtyardArrival     = { 1645.00f, 240.00f,  62.67f, 3.14f };       // spell_target_position of SPELL_TELEPORT_TO_LORDAERON
