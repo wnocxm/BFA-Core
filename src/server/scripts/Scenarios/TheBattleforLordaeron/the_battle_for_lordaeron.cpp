@@ -19,6 +19,7 @@
 #include "DB2Stores.h"
 #include "InstanceScript.h"
 #include "LFGMgr.h"
+#include "Log.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
@@ -46,6 +47,7 @@ struct npc_lordaeron_saurfang : public ScriptedAI
 
     void DoAction(int32 action) override
     {
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang action %d", action);
         _fightAlongside = action == ACTION_SAURFANG_FIGHT_ALONGSIDE;
 
         switch (action)

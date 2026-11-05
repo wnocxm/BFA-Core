@@ -79,6 +79,9 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     {
         InstanceScript::OnPlayerEnter(player);
 
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: %s entered (scenario %u, step %u)", player->GetName().c_str(),
+            instance->GetInstanceScenario() && instance->GetInstanceScenario()->GetEntry() ? instance->GetInstanceScenario()->GetEntry()->ID : 0, GetCurrentStepId());
+
         if (!IsHordeScenario())
             return;
 
@@ -115,7 +118,10 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
                 MakeCivilian(creature);
 
         if (Creature* saurfang = Summon(NPC_SAURFANG, SaurfangMagicQuarter))
+        {
             _saurfangGuid = saurfang->GetGUID();
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang summoned with AI '%s'", saurfang->GetScriptName().c_str());
+        }
 
         _scheduler.Schedule(1s, [this](TaskContext context)
         {
@@ -469,6 +475,8 @@ private:
     // start when a GM skips a step (.instance complete_scenario_step).
     void OnStepChanged(uint32 stepId)
     {
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: step changed to %u", stepId);
+
         switch (stepId)
         {
             case STEP_H_SPIES_IN_OUR_MIDST:
@@ -611,12 +619,20 @@ private:
     {
         _briefingStarted = true;
         StartConversation(CONVERSATION_SAURFANG_BRIEFING, saurfang);
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang briefing started");
 
         _scheduler.Schedule(SAURFANG_BRIEFING_LENGTH, [this](TaskContext /*context*/)
         {
+            uint32 opened = 0;
             for (ObjectGuid const& guid : _magicQuarterPortcullises)
+            {
                 if (GameObject* portcullis = instance->GetGameObject(guid))
+                {
                     portcullis->SetGoState(GO_STATE_ACTIVE);
+                    ++opened;
+                }
+            }
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang briefing ended, %u portcullis opened", opened);
 
             DoSendScenarioEvent(SCENARIO_EVENT_H_REPORT_TO_SAURFANG);
         });
