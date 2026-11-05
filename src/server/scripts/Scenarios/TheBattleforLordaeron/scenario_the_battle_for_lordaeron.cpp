@@ -19,7 +19,9 @@
 #include "Conversation.h"
 #include "CreatureAI.h"
 #include "DBCEnums.h"
+#include "GameObject.h"
 #include "InstanceScenario.h"
+#include "Log.h"
 #include "Map.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
@@ -46,6 +48,7 @@ namespace
 
     constexpr Milliseconds SPIES_VANISH_DELAY   = 11533ms; // "<whistles>" line of CONVERSATION_SPIES_CORNERED
     constexpr Milliseconds REINFORCEMENTS_DELAY = 10s;
+    constexpr Milliseconds SAURFANG_BRIEFING_LENGTH = 38809ms;
     constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
 
     // Undercity elevators, where evacuated citizens head before leaving.
@@ -115,6 +118,14 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             UpdatePlayerChecks();
             context.Repeat(1s);
         });
+    }
+
+    void OnGameObjectCreate(GameObject* go) override
+    {
+        InstanceScript::OnGameObjectCreate(go);
+
+        if (go->GetSpawnId() == GO_SPAWN_MAGIC_QUARTER_PORTCULLIS)
+            _magicQuarterPortcullisGuid = go->GetGUID();
     }
 
     void OnPlayerExit(Player* player) override
@@ -274,7 +285,6 @@ private:
     // Spies in Our Midst: kill SI:7 Operatives and free the citizens they hold.
     void StartSpiesInOurMidst()
     {
-        StartConversation(CONVERSATION_SAURFANG_BRIEFING, GetSaurfang());
         _spies = SummonGroup(SUMMON_GROUP_SPIES);
         SummonCaptives();
     }
@@ -467,6 +477,7 @@ private:
     {
         if (stepId == STEP_H_SPIES_IN_OUR_MIDST)
         {
+            PruneGone(_spies);
             PruneGone(_captives);
             if (_spies.empty())
                 ScheduleReinforcements(stepId, SUMMON_GROUP_SPIES);
@@ -475,6 +486,7 @@ private:
         }
         else if (stepId == STEP_H_EVACUATE_HEART)
         {
+            PruneGone(_heartEnemies);
             PruneGone(_heartCitizens);
             if (_heartEnemies.empty())
                 ScheduleReinforcements(stepId, SUMMON_GROUP_HEART_ENEMIES);
@@ -493,6 +505,8 @@ private:
             _pendingReinforcements.erase(groupId);
             if (GetCurrentStepId() != stepId)
                 return;
+
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: reinforcements arrive (summon group %u, step %u)", uint32(groupId), stepId);
 
             switch (groupId)
             {
@@ -540,9 +554,10 @@ private:
             switch (stepId)
             {
                 case STEP_H_UNDER_SIEGE:
-                    if (Creature* saurfang = GetSaurfang())
-                        if (player->IsWithinDist(saurfang, REPORT_TO_SAURFANG_RANGE))
-                            DoSendScenarioEvent(SCENARIO_EVENT_H_REPORT_TO_SAURFANG);
+                    if (!_briefingStarted)
+                        if (Creature* saurfang = GetSaurfang())
+                            if (player->IsWithinDist(saurfang, REPORT_TO_SAURFANG_RANGE))
+                                StartBriefing(saurfang);
                     break;
                 case STEP_H_SPIES_IN_OUR_MIDST:
                     RescueCaptivesNear(player);
@@ -564,6 +579,22 @@ private:
                 DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE);
             }
         }
+    }
+
+    // Under Siege: Saurfang briefs the players; when he is done the portcullis to the
+    // canals opens and the step is reported.
+    void StartBriefing(Creature* saurfang)
+    {
+        _briefingStarted = true;
+        StartConversation(CONVERSATION_SAURFANG_BRIEFING, saurfang);
+
+        _scheduler.Schedule(SAURFANG_BRIEFING_LENGTH, [this](TaskContext /*context*/)
+        {
+            if (GameObject* portcullis = instance->GetGameObject(_magicQuarterPortcullisGuid))
+                portcullis->SetGoState(GO_STATE_ACTIVE);
+
+            DoSendScenarioEvent(SCENARIO_EVENT_H_REPORT_TO_SAURFANG);
+        });
     }
 
     // "My portal is open, we must evacuate!" once the first player reaches the Magic Quarter.
@@ -611,6 +642,7 @@ private:
 
     TaskScheduler _scheduler;
     bool _started = false;
+    bool _briefingStarted = false;
     uint32 _currentStepId = 0;
     bool _anastasiaGreeted = false;
     bool _keepPortalOpen = false;
@@ -618,6 +650,7 @@ private:
     bool _frontLineReached = false;
 
     ObjectGuid _saurfangGuid;
+    ObjectGuid _magicQuarterPortcullisGuid;
     std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;
     GuidSet _spies;

@@ -137,6 +137,11 @@ enum BattleForLordaeronNpcs
     NPC_ISABELLA_ORGRIMMAR              = 139093, // SmartAI makes the player cast SPELL_LEAVE_FOR_LORDAERON_QUEUE
 };
 
+enum BattleForLordaeronGameObjects
+{
+    GO_SPAWN_MAGIC_QUARTER_PORTCULLIS   = 210406631, // Portcullis 278768 between Saurfang's hall and the canals
+};
+
 enum BattleForLordaeronSpells
 {
     SPELL_LEAVE_FOR_LORDAERON_QUEUE     = 269807, // joins LFG 1759
