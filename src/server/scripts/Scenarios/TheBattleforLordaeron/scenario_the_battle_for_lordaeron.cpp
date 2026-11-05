@@ -48,6 +48,10 @@ namespace
 
     constexpr Milliseconds SPIES_VANISH_DELAY   = 11533ms; // "<whistles>" line of CONVERSATION_SPIES_CORNERED
     constexpr Milliseconds REINFORCEMENTS_DELAY = 10s;
+    constexpr size_t MIN_SPIES_LEFT             = 8;
+    constexpr size_t MIN_CAPTIVES_LEFT          = 4;
+    constexpr size_t MIN_HEART_ENEMIES_LEFT     = 6;
+    constexpr size_t MIN_HEART_CITIZENS_LEFT    = 8;
     constexpr Milliseconds SAURFANG_BRIEFING_LENGTH = 38809ms;
     constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
 
@@ -291,8 +295,9 @@ private:
 
     void SummonCaptives()
     {
-        _captives = SummonGroup(SUMMON_GROUP_CAPTIVES);
-        for (ObjectGuid const& guid : _captives)
+        GuidSet captives = SummonGroup(SUMMON_GROUP_CAPTIVES);
+        Merge(_captives, captives);
+        for (ObjectGuid const& guid : captives)
         {
             if (Creature* captive = instance->GetCreature(guid))
             {
@@ -366,8 +371,9 @@ private:
 
     void SummonHeartCitizens()
     {
-        _heartCitizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
-        for (ObjectGuid const& guid : _heartCitizens)
+        GuidSet citizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
+        Merge(_heartCitizens, citizens);
+        for (ObjectGuid const& guid : citizens)
             if (Creature* citizen = instance->GetCreature(guid))
                 MakeCivilian(citizen);
     }
@@ -471,26 +477,27 @@ private:
         }
     }
 
-    // Weighted steps never run dry: once a kind of target is used up while the step is
-    // still running, a new group of it arrives.
+    // Weighted steps never run dry: when few targets of a kind are left while the step is
+    // still running, a new group of them arrives. A threshold is used rather than "none
+    // left" so a target stuck out of reach can never block the step.
     void CheckReinforcements(uint32 stepId)
     {
         if (stepId == STEP_H_SPIES_IN_OUR_MIDST)
         {
             PruneGone(_spies);
             PruneGone(_captives);
-            if (_spies.empty())
+            if (_spies.size() < MIN_SPIES_LEFT)
                 ScheduleReinforcements(stepId, SUMMON_GROUP_SPIES);
-            if (_captives.empty())
+            if (_captives.size() < MIN_CAPTIVES_LEFT)
                 ScheduleReinforcements(stepId, SUMMON_GROUP_CAPTIVES);
         }
         else if (stepId == STEP_H_EVACUATE_HEART)
         {
             PruneGone(_heartEnemies);
             PruneGone(_heartCitizens);
-            if (_heartEnemies.empty())
+            if (_heartEnemies.size() < MIN_HEART_ENEMIES_LEFT)
                 ScheduleReinforcements(stepId, SUMMON_GROUP_HEART_ENEMIES);
-            if (_heartCitizens.empty())
+            if (_heartCitizens.size() < MIN_HEART_CITIZENS_LEFT)
                 ScheduleReinforcements(stepId, SUMMON_GROUP_HEART_CITIZENS);
         }
     }
@@ -508,15 +515,21 @@ private:
 
             TC_LOG_INFO("scripts", "Battle for Lordaeron: reinforcements arrive (summon group %u, step %u)", uint32(groupId), stepId);
 
+            // New arrivals join the ones still standing, so those keep giving credit.
             switch (groupId)
             {
-                case SUMMON_GROUP_SPIES:          _spies = SummonGroup(groupId); break;
+                case SUMMON_GROUP_SPIES:          Merge(_spies, SummonGroup(groupId)); break;
                 case SUMMON_GROUP_CAPTIVES:       SummonCaptives(); break;
-                case SUMMON_GROUP_HEART_ENEMIES:  _heartEnemies = SummonGroup(groupId); break;
+                case SUMMON_GROUP_HEART_ENEMIES:  Merge(_heartEnemies, SummonGroup(groupId)); break;
                 case SUMMON_GROUP_HEART_CITIZENS: SummonHeartCitizens(); break;
                 default: break;
             }
         });
+    }
+
+    static void Merge(GuidSet& into, GuidSet const& from)
+    {
+        into.insert(from.begin(), from.end());
     }
 
     void PruneGone(GuidSet& guids)
