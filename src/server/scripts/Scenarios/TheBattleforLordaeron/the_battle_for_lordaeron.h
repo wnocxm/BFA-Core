@@ -155,8 +155,8 @@ enum BattleForLordaeronGameObjects
 // Undercity citizens in the heart of the city (custom ids, texts are BroadcastText 141822-141825).
 enum BattleForLordaeronGossip
 {
-    GOSSIP_MENU_UNDERCITY_CITIZEN       = 600001,
-    GOSSIP_OPTION_GET_TO_THE_PORTAL     = 0,     // "The Undercity is under attack! Get to the mage portal!"
+    GOSSIP_MENU_UNDERCITY_CITIZEN       = 600001, // npc_text 600001: citizen greetings 141822-141824
+    BROADCAST_TEXT_GET_TO_THE_PORTAL    = 141825, // "The Undercity is under attack! Get to the mage portal!"
 };
 
 enum BattleForLordaeronSpells

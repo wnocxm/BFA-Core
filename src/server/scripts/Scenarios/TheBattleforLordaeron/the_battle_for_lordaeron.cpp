@@ -91,7 +91,12 @@ public:
     bool OnGossipHello(Player* player, Creature* creature) override
     {
         ClearGossipMenuFor(player);
-        AddGossipItemFor(player, GOSSIP_MENU_UNDERCITY_CITIZEN, GOSSIP_OPTION_GET_TO_THE_PORTAL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+
+        // The option text comes straight from the client's BroadcastText, in the player's locale.
+        if (BroadcastTextEntry const* text = sBroadcastTextStore.LookupEntry(BROADCAST_TEXT_GET_TO_THE_PORTAL))
+            AddGossipItemFor(player, GOSSIP_ICON_CHAT, DB2Manager::GetBroadcastTextValue(text, player->GetSession()->GetSessionDbcLocale()),
+                GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+
         SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_UNDERCITY_CITIZEN, creature), creature->GetGUID());
         return true;
     }

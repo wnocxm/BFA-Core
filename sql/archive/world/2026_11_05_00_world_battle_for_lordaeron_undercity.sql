@@ -238,7 +238,7 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 DELETE FROM `npc_spellclick_spells` WHERE `spell_id` = 261807;
 
 -- Evacuate the Heart of the City: talk to a citizen and tell them to get to the mage portal.
--- Custom menu/text id 600001; texts are BroadcastText 141822-141825.
+-- Custom menu/text id 600001; greetings are BroadcastText 141822-141824.
 DELETE FROM `npc_text` WHERE `ID` = 600001;
 INSERT INTO `npc_text` (`ID`, `Probability0`, `Probability1`, `Probability2`, `Probability3`, `Probability4`, `Probability5`, `Probability6`, `Probability7`, `BroadcastTextID0`, `BroadcastTextID1`, `BroadcastTextID2`, `BroadcastTextID3`, `BroadcastTextID4`, `BroadcastTextID5`, `BroadcastTextID6`, `BroadcastTextID7`, `VerifiedBuild`) VALUES
 (600001, 1, 1, 1, 0, 0, 0, 0, 0, 141822, 141823, 141824, 0, 0, 0, 0, 0, 0);
@@ -247,9 +247,9 @@ DELETE FROM `gossip_menu` WHERE `MenuId` = 600001;
 INSERT INTO `gossip_menu` (`MenuId`, `TextId`, `VerifiedBuild`) VALUES
 (600001, 600001, 0);
 
+-- The option ("The Undercity is under attack! Get to the mage portal!", BroadcastText 141825)
+-- is added by npc_lordaeron_undercity_citizen straight from the client's BroadcastText.
 DELETE FROM `gossip_menu_option` WHERE `MenuId` = 600001;
-INSERT INTO `gossip_menu_option` (`MenuId`, `OptionIndex`, `OptionIcon`, `OptionText`, `OptionBroadcastTextId`, `OptionType`, `OptionNpcFlag`, `VerifiedBuild`) VALUES
-(600001, 0, 0, 'The Undercity is under attack! Get to the mage portal!', 141825, 1, 1, 0);
 
 UPDATE `creature_template` SET `ScriptName` = 'npc_lordaeron_undercity_citizen' WHERE `entry` IN (130687, 130959, 130960, 130961, 130962, 130963, 130964, 130965, 130966, 130967, 130968, 130969, 130970, 130971, 130972, 130973, 130974, 130975, 130976, 130977, 130978, 130979, 130980, 130981);
 
