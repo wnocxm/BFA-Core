@@ -45,7 +45,6 @@ namespace
     constexpr float RESCUE_RANGE                = 10.0f;
     constexpr float RESCUE_SPY_CLEAR_RANGE      = 10.0f;
     constexpr float COURTYARD_ARRIVAL_RANGE     = 25.0f;
-    constexpr float FRONT_LINE_RANGE            = 15.0f;
     constexpr float START_TELEPORT_RANGE        = 40.0f;
     constexpr uint32 FACTION_SCENARIO_ENEMY     = 2502;
 
@@ -62,6 +61,7 @@ namespace
     constexpr size_t MIN_HEART_CITIZENS_LEFT    = 8;
     constexpr Milliseconds SAURFANG_BRIEFING_LENGTH = 38809ms;
     constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
+    constexpr Milliseconds LOKTAR_OGAR_LINE_START = 32694ms; // Saurfang's "Lok'tar ogar!" in CONVERSATION_UNDERCITY_EVACUATED
     constexpr Milliseconds GATE_WAIT_BEFORE_ORDER = 3s;  // Saurfang stands at the gate a moment
     constexpr Milliseconds GATE_OPEN_IN_ORDER    = 2s;  // "...Open the gate!" ends this long into the line
     constexpr float GATE_FRONT_DISTANCE         = 5.0f; // where he stops, in front of the portcullis
@@ -209,6 +209,10 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             case GO_SPAWN_HEART_PORTCULLIS_2:
                 _heartPortcullises.insert(go->GetGUID());
                 break;
+            case GO_SPAWN_KEEP_FRONT_GATE_INNER:
+            case GO_SPAWN_KEEP_FRONT_GATE_OUTER:
+                _keepFrontGates.insert(go->GetGUID());
+                break;
             default:
                 break;
         }
@@ -254,8 +258,7 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         switch (type)
         {
             case DATA_PLAYER_USED_KEEP_PORTAL:
-                // "Use the Portal" is a CRITERIA_TYPE_SEND_EVENT criteria.
-                player->UpdateCriteria(CRITERIA_TYPE_SEND_EVENT, GAME_EVENT_H_USE_PORTAL);
+                CreditPortalUse(player);
                 break;
             default:
                 break;
@@ -570,8 +573,11 @@ private:
 
         StartConversation(CONVERSATION_UNDERCITY_EVACUATED, sylvanas ? sylvanas : saurfang);
 
-        _scheduler.Schedule(UNDERCITY_EVACUATED_LENGTH, [this](TaskContext /*context*/)
+        // "Lok'tar ogar!": the keep gates open and he charges; Follow Saurfang to battle is done.
+        _scheduler.Schedule(LOKTAR_OGAR_LINE_START, [this](TaskContext /*context*/)
         {
+            OpenPortcullises(_keepFrontGates, "keep front");
+            DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE);
             StartSaurfangRoute(RouteToFrontLine, SaurfangRouteEnd::FrontLine);
         });
     }
@@ -845,17 +851,25 @@ private:
 
             // Not tied to the step: "Follow Saurfang to battle" has amount 0 in Criteria.db2,
             // so To Battle! may already be completed once the portal is used.
+            // The first player through the portal starts the courtyard scene.
             if (_keepPortalOpen && !_courtyardReached && player->GetDistance(CourtyardArrival) <= COURTYARD_ARRIVAL_RANGE)
             {
                 _courtyardReached = true;
                 OnFirstPlayerInCourtyard();
             }
-            if (_courtyardReached && !_frontLineReached && player->GetDistance(SaurfangFrontLine) <= FRONT_LINE_RANGE)
-            {
-                _frontLineReached = true;
-                DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE);
-            }
+            // Whoever came through the portal used it (also credited by the portal's spell script).
+            if (_keepPortalOpen && player->GetDistance(CourtyardArrival) <= COURTYARD_ARRIVAL_RANGE)
+                CreditPortalUse(player);
         }
+    }
+
+    // "Use the Portal" is a CRITERIA_TYPE_SEND_EVENT criteria, once per player.
+    void CreditPortalUse(Player* player)
+    {
+        if (!_portalUsers.insert(player->GetGUID()).second)
+            return;
+        player->UpdateCriteria(CRITERIA_TYPE_SEND_EVENT, GAME_EVENT_H_USE_PORTAL);
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: %s used the portal to the keep", player->GetName().c_str());
     }
 
     void OpenPortcullises(GuidSet const& portcullises, char const* name)
@@ -938,7 +952,6 @@ private:
     bool _anastasiaGreeted = false;
     bool _keepPortalOpen = false;
     bool _courtyardReached = false;
-    bool _frontLineReached = false;
 
     ObjectGuid _saurfangGuid;
     SaurfangMode _saurfangMode = SaurfangMode::Idle;
@@ -949,6 +962,8 @@ private:
     GuidSet _magicQuarterPortcullises;
     GuidSet _canalPortcullises;
     GuidSet _heartPortcullises;
+    GuidSet _keepFrontGates;
+    GuidSet _portalUsers;
     std::vector<Position> _gateRoute;
     std::vector<Position> _heartRoute;
     float _gateFacing = 0.0f;

@@ -150,6 +150,8 @@ enum BattleForLordaeronGameObjects
     // Gate of the heart of the city, opened when Saurfang reaches it ("Open the gate!").
     GO_SPAWN_HEART_PORTCULLIS_1         = 210406650, // Portcullis 280729 (1559.52, 208.51)
     GO_SPAWN_HEART_PORTCULLIS_2         = 210406654, // Portcullis 280729 (1563.16, 204.13)
+    GO_SPAWN_KEEP_FRONT_GATE_INNER      = 210406716, // Front Gate 271743 (1849.43, 237.98)
+    GO_SPAWN_KEEP_FRONT_GATE_OUTER      = 210406633, // Front Gate 271743 (1873.76, 237.65)
 };
 
 // Undercity citizens in the heart of the city (custom ids, texts are BroadcastText 141822-141825).
@@ -207,9 +209,9 @@ namespace BattleForLordaeron
     Position const MagicQuarterPortal   = { 1705.62f,  41.75f, -63.84f, 0.0f };        // placed in game
     Position const AnastasiaHeart       = { 1585.00f, 225.50f, -62.09f, 1.40f };
     Position const KeepPortal           = { 1582.50f, 229.00f, -62.09f, 1.40f };
-    // Keep courtyard, outside the throne room (Saurfang's courtyard spot in the Alliance-view sniff: 1744.64 238.92 62.13)
-    Position const CourtyardArrival     = { 1735.00f, 239.00f,  62.63f, 6.248f };      // spell_target_position of SPELL_TELEPORT_TO_LORDAERON
-    Position const SaurfangCourtyard    = { 1745.00f, 235.50f,  62.13f, 3.14f };
+    // Keep courtyard, outside the throne room: Saurfang faces Sylvanas (in-game .gps)
+    Position const CourtyardArrival     = { 1782.00f, 238.60f,  62.00f, 6.248f };      // spell_target_position of SPELL_TELEPORT_TO_LORDAERON
+    Position const SaurfangCourtyard    = { 1792.471436f, 238.566727f, 60.586876f, 0.0f };
     Position const SaurfangFrontLine    = { 1856.80f, 238.30f,  62.13f, 0.00f };
 }
 
