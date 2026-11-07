@@ -58,6 +58,10 @@ namespace
     constexpr size_t MIN_HEART_CITIZENS_LEFT    = 8;
     constexpr Milliseconds SAURFANG_BRIEFING_LENGTH = 38809ms;
     constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
+    constexpr Milliseconds GATE_WAIT_BEFORE_ORDER = 3s;  // Saurfang stands at the gate a moment
+    constexpr Milliseconds GATE_OPEN_IN_ORDER    = 2s;  // "...Open the gate!" ends this long into the line
+    constexpr float GATE_FRONT_DISTANCE         = 5.0f; // where he stops, in front of the portcullis
+    constexpr float GATE_INSIDE_DISTANCE        = 6.0f;
 
     // Saurfang's routes. Short legs: each one is walked with pathfinding, or in a straight
     // line if no path is found. Dugi guide points (1653.6, 117.9) and (1597.0, 106.2).
@@ -225,7 +229,8 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         else if (_druids.erase(guid) && _druids.empty() && GetCurrentStepId() == STEP_H_TO_THE_HEART)
         {
             DoSendScenarioEvent(SCENARIO_EVENT_H_AMBUSH_CLEARED);
-            StartSaurfangRoute(RouteToGate, SaurfangRouteEnd::Gate);
+            BuildHeartGateRoutes();
+            StartSaurfangRoute(_gateRoute, SaurfangRouteEnd::Gate);
         }
     }
 
@@ -419,7 +424,70 @@ private:
             if (Creature* guard = instance->GetCreature(guid))
                 guard->GetMotionMaster()->MovePoint(0, SaurfangHeart);
 
-        StartSaurfangRoute(RouteToHeart, SaurfangRouteEnd::Heart);
+        if (_heartRoute.empty())
+            BuildHeartGateRoutes();
+        StartSaurfangRoute(_heartRoute, SaurfangRouteEnd::Heart);
+    }
+
+    // The heart gate is the pair of portcullises (280729): Saurfang stops right in front of
+    // them on his side and later walks through to the heart.
+    void BuildHeartGateRoutes()
+    {
+        _gateRoute = RouteToGate;
+        _heartRoute = RouteToHeart;
+
+        Position center;
+        float facing = 0.0f;
+        uint32 count = 0;
+        for (ObjectGuid const& guid : _heartPortcullises)
+        {
+            if (GameObject* go = instance->GetGameObject(guid))
+            {
+                center.m_positionX += go->GetPositionX();
+                center.m_positionY += go->GetPositionY();
+                center.m_positionZ += go->GetPositionZ();
+                facing = go->GetOrientation();
+                ++count;
+            }
+        }
+
+        Creature* saurfang = GetSaurfang();
+        if (!count || !saurfang)
+        {
+            TC_LOG_ERROR("scripts", "Battle for Lordaeron: heart portcullises not found, Saurfang uses the fixed gate route");
+            return;
+        }
+
+        center.m_positionX /= count;
+        center.m_positionY /= count;
+        center.m_positionZ /= count;
+
+        // The portcullis faces along the tunnel; Saurfang's side is the one he comes from.
+        float const dirX = std::cos(facing);
+        float const dirY = std::sin(facing);
+        float const side = (saurfang->GetPositionX() - center.GetPositionX()) * dirX
+            + (saurfang->GetPositionY() - center.GetPositionY()) * dirY < 0.0f ? -1.0f : 1.0f;
+
+        auto pointAt = [&](float distance)
+        {
+            float x = center.GetPositionX() + dirX * side * distance;
+            float y = center.GetPositionY() + dirY * side * distance;
+            float z = instance->GetHeight(PhasingHandler::GetEmptyPhaseShift(), x, y, center.GetPositionZ() + 2.0f, true, 10.0f);
+            if (z <= INVALID_HEIGHT)
+                z = center.GetPositionZ();
+            return Position(x, y, z);
+        };
+
+        _gateFacing = Position::NormalizeOrientation(side > 0.0f ? facing + float(M_PI) : facing);
+        Position front = pointAt(GATE_FRONT_DISTANCE);
+        front.SetOrientation(_gateFacing);
+
+        _gateRoute = { front };
+        _heartRoute = { pointAt(-GATE_INSIDE_DISTANCE), SaurfangHeart };
+
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: heart gate at %.2f %.2f %.2f, Saurfang stops at %.2f %.2f %.2f",
+            center.GetPositionX(), center.GetPositionY(), center.GetPositionZ(),
+            front.GetPositionX(), front.GetPositionY(), front.GetPositionZ());
     }
 
     void SummonHeartCitizens()
@@ -434,6 +502,11 @@ private:
             {
                 MakeCivilian(citizen);
                 citizen->SetNpcFlags(UNIT_NPC_FLAG_GOSSIP);
+                // Without this ScriptName the gossip has no "Get to the mage portal!" option.
+                if (citizen->GetScriptName() != "npc_lordaeron_undercity_citizen")
+                    TC_LOG_ERROR("scripts", "Battle for Lordaeron: citizen %u has ScriptName '%s', expected 'npc_lordaeron_undercity_citizen' "
+                        "(run 2026_11_05_00_world_battle_for_lordaeron_undercity.sql on the world DB and restart)",
+                        citizen->GetEntry(), citizen->GetScriptName().c_str());
             }
         }
     }
@@ -603,9 +676,19 @@ private:
                 OnSaurfangReachedAmbush();
                 break;
             case SaurfangRouteEnd::Gate:
-                StartConversation(CONVERSATION_OPEN_THE_GATE, GetSaurfang());
-                OpenPortcullises(_heartPortcullises, "heart");
-                DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
+                // He stops in front of the portcullis, waits a moment, orders it open and
+                // it opens as he says so.
+                if (Creature* saurfang = GetSaurfang())
+                    saurfang->SetFacingTo(_gateFacing);
+                _scheduler.Schedule(GATE_WAIT_BEFORE_ORDER, [this](TaskContext context)
+                {
+                    StartConversation(CONVERSATION_OPEN_THE_GATE, GetSaurfang());
+                    context.Schedule(GATE_OPEN_IN_ORDER, [this](TaskContext /*context*/)
+                    {
+                        OpenPortcullises(_heartPortcullises, "heart");
+                        DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
+                    });
+                });
                 break;
             default:
                 break;
@@ -860,6 +943,9 @@ private:
     GuidSet _magicQuarterPortcullises;
     GuidSet _canalPortcullises;
     GuidSet _heartPortcullises;
+    std::vector<Position> _gateRoute;
+    std::vector<Position> _heartRoute;
+    float _gateFacing = 0.0f;
     std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;
     GuidSet _spies;
