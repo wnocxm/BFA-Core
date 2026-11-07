@@ -18,6 +18,7 @@
 #include "the_battle_for_lordaeron.h"
 #include "Conversation.h"
 #include "CreatureAI.h"
+#include "DB2Stores.h"
 #include "DBCEnums.h"
 #include "GameObject.h"
 #include "InstanceScenario.h"
@@ -29,8 +30,11 @@
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
 #include "Player.h"
+#include "ScriptedGossip.h"
+#include "ScriptMgr.h"
 #include "TaskScheduler.h"
 #include "TemporarySummon.h"
+#include "WorldSession.h"
 
 using namespace BattleForLordaeron;
 
@@ -538,6 +542,8 @@ private:
         {
             if (Creature* portal = Summon(NPC_PORTAL_TO_THE_KEEP, KeepPortal))
             {
+                // Its template carries unrelated auras from an old map 650 spawn; the model is the portal.
+                portal->RemoveAllAuras();
                 portal->SetNpcFlags(UNIT_NPC_FLAG_SPELLCLICK);
                 _keepPortalOpen = true;
             }
@@ -958,7 +964,42 @@ private:
     GuidSet _courtyard;
 };
 
+// Undercity citizens in the heart of the city (Evacuate the Heart of the City).
+// Registered here, next to the instance script that summons them.
+// "The Undercity is under attack! Get to the mage portal!" sends them away.
+class npc_lordaeron_undercity_citizen : public CreatureScript
+{
+public:
+    npc_lordaeron_undercity_citizen() : CreatureScript("npc_lordaeron_undercity_citizen") { }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        ClearGossipMenuFor(player);
+
+        // The option text comes straight from the client's BroadcastText, in the player's locale.
+        std::string optionText = "The Undercity is under attack! Get to the mage portal!";
+        if (BroadcastTextEntry const* text = sBroadcastTextStore.LookupEntry(BROADCAST_TEXT_GET_TO_THE_PORTAL))
+            optionText = DB2Manager::GetBroadcastTextValue(text, player->GetSession()->GetSessionDbcLocale());
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, optionText, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+
+        SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_UNDERCITY_CITIZEN, creature), creature->GetGUID());
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
+    {
+        CloseGossipMenuFor(player);
+        if (action != GOSSIP_ACTION_INFO_DEF)
+            return false;
+
+        if (InstanceScript* instance = creature->GetInstanceScript())
+            instance->SetGuidData(DATA_EVACUATE_CITIZEN, creature->GetGUID());
+        return true;
+    }
+};
+
 void AddSC_scenario_the_battle_for_lordaeron()
 {
+    new npc_lordaeron_undercity_citizen();
     RegisterInstanceScript(scenario_the_battle_for_lordaeron, MAP_LORDAERON_SCENARIO);
 }

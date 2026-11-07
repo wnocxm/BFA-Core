@@ -81,39 +81,6 @@ class spell_lordaeron_leave_for_lordaeron_queue : public SpellScript
     }
 };
 
-// Undercity citizens in the heart of the city (Evacuate the Heart of the City).
-// "The Undercity is under attack! Get to the mage portal!" sends them away.
-class npc_lordaeron_undercity_citizen : public CreatureScript
-{
-public:
-    npc_lordaeron_undercity_citizen() : CreatureScript("npc_lordaeron_undercity_citizen") { }
-
-    bool OnGossipHello(Player* player, Creature* creature) override
-    {
-        ClearGossipMenuFor(player);
-
-        // The option text comes straight from the client's BroadcastText, in the player's locale.
-        std::string optionText = "The Undercity is under attack! Get to the mage portal!";
-        if (BroadcastTextEntry const* text = sBroadcastTextStore.LookupEntry(BROADCAST_TEXT_GET_TO_THE_PORTAL))
-            optionText = DB2Manager::GetBroadcastTextValue(text, player->GetSession()->GetSessionDbcLocale());
-        AddGossipItemFor(player, GOSSIP_ICON_CHAT, optionText, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
-
-        SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_UNDERCITY_CITIZEN, creature), creature->GetGUID());
-        return true;
-    }
-
-    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
-    {
-        CloseGossipMenuFor(player);
-        if (action != GOSSIP_ACTION_INFO_DEF)
-            return false;
-
-        if (InstanceScript* instance = creature->GetInstanceScript())
-            instance->SetGuidData(DATA_EVACUATE_CITIZEN, creature->GetGUID());
-        return true;
-    }
-};
-
 // 259094 - Teleport to Lordaeron
 // Cast on spellclick of Anastasia's portal in the heart of the city; the teleport itself
 // uses spell_target_position.
@@ -137,6 +104,5 @@ void AddSC_the_battle_for_lordaeron()
 {
     RegisterCreatureAI(npc_lordaeron_saurfang);
     RegisterSpellScript(spell_lordaeron_leave_for_lordaeron_queue);
-    new npc_lordaeron_undercity_citizen();
     RegisterSpellScript(spell_lordaeron_teleport_to_lordaeron);
 }

@@ -42,8 +42,8 @@ UiMap 908 (Ruins of Lordaeron) region X 1254.17..3277.08, Y -1335.42..1697.92.
 | 1 | Under Siege - report to Saurfang | Saurfang at (1715.0, 63.2) Magic Quarter. Conversation 6430 |
 | 2 | Spies in Our Midst (120) | Mage District (1691.6, 89.4) (1717.6, 115.6) (1693.6, 140.1). Kill SI:7 = event 61487 (x4); SI:7 Intelligence Report spell 260012 sends 61488 (x3). Conversation 6458 |
 | 3 | To the Heart! | Follow Saurfang (1653.6, 117.9) (1597.0, 106.2) (1595.3, 172.5). Gate conversation 6680 (Saurfang + Royal Dreadguard 140039) |
-| 4 | Evacuate the Heart (110) | (1595.3, 231.1). Talk to a citizen: gossip option "The Undercity is under attack! Get to the mage portal!" (BroadcastText 141825; citizen texts 141822-141824) evacuates it, x2 (61525). Hostile NPCs x3 (61526). Spell 261807 "Evacuate!" (override bar 995 of 261808) exists in client data but retail videos show the gossip |
-| 5 | To Battle! | Portal at (1582.5, 228.9), conversation 6487 ("Open a portal to the keep"). Walls: conversation 6789. Follow Saurfang to (1856.8, 238.3) |
+| 4 | Evacuate the Heart (110) | (1595.3, 231.1). Talk to a citizen: gossip option "The Undercity is under attack! Get to the mage portal!" (BroadcastText 141825; citizen texts 141822-141824, script in scenario_the_battle_for_lordaeron.cpp) evacuates it, x2 (61525). Hostile NPCs x3 (61526). Spell 261807 "Evacuate!" (override bar 995 of 261808) exists in client data but retail videos show the gossip |
+| 5 | To Battle! | Portal to Lordaeron 131087 at (1582.5, 228.9), conversation 6487 ("Open a portal to the keep"). Walls: conversation 6789. Follow Saurfang to (1856.8, 238.3) |
 | 6 | Push Them Back (100) | (1920.7, 244.6). Conversation 8164 |
 | 7 | Defend the Azerite War Machine | (2011.3, 243.4). Waves led by Lyara 140129 (6790/8694), Emery 144382 (8690), Cogspark 139491 (8691). Conversation 9675 |
 | 8 | Our Secret Weapon (250) | Sludge Guard Trizz 125516 at (1905.7, 233.1) gives Blight Resistant Gas Mask 271541 + Blight Canister 261723 (override bar 994 = 261724, Blight Spray 261748). Use at (2174.2, 219.8) |

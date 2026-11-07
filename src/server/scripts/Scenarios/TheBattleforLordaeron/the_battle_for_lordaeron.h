@@ -121,7 +121,7 @@ enum BattleForLordaeronNpcs
     // Civilians
     NPC_UNDERCITY_EVACUEE               = 130687,
     NPC_PORTAL_TO_ORGRIMMAR             = 130688,
-    NPC_PORTAL_TO_THE_KEEP              = 126680, // "Portal", spellclick casts SPELL_TELEPORT_TO_LORDAERON
+    NPC_PORTAL_TO_THE_KEEP              = 131087, // "Portal to Lordaeron", spellclick casts SPELL_TELEPORT_TO_LORDAERON
 
     // Alliance enemies
     NPC_SI7_OPERATIVE                   = 131137,

@@ -254,9 +254,10 @@ DELETE FROM `gossip_menu_option` WHERE `MenuId` = 600001;
 UPDATE `creature_template` SET `ScriptName` = 'npc_lordaeron_undercity_citizen' WHERE `entry` IN (130687, 130959, 130960, 130961, 130962, 130963, 130964, 130965, 130966, 130967, 130968, 130969, 130970, 130971, 130972, 130973, 130974, 130975, 130976, 130977, 130978, 130979, 130980, 130981);
 
 -- To Battle!: Anastasia's portal to the keep courtyard
-DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` = 126680;
+-- "Portal to Lordaeron" (131087); 126680 was a plain "Portal" with the wrong look.
+DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` IN (126680, 131087);
 INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
-(126680, 259094, 3, 0);
+(131087, 259094, 3, 0);
 
 DELETE FROM `spell_target_position` WHERE `ID` = 259094;
 INSERT INTO `spell_target_position` (`ID`, `EffectIndex`, `MapID`, `PositionX`, `PositionY`, `PositionZ`, `VerifiedBuild`) VALUES
