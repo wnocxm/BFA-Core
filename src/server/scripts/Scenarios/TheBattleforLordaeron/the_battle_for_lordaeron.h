@@ -207,8 +207,9 @@ namespace BattleForLordaeron
     Position const MagicQuarterPortal   = { 1705.62f,  41.75f, -63.84f, 0.0f };        // placed in game
     Position const AnastasiaHeart       = { 1585.00f, 225.50f, -62.09f, 1.40f };
     Position const KeepPortal           = { 1582.50f, 229.00f, -62.09f, 1.40f };
-    Position const CourtyardArrival     = { 1645.00f, 240.00f,  62.67f, 3.14f };       // spell_target_position of SPELL_TELEPORT_TO_LORDAERON
-    Position const SaurfangCourtyard    = { 1636.50f, 240.00f,  62.67f, 3.14f };
+    // Keep courtyard, outside the throne room (Saurfang's courtyard spot in the Alliance-view sniff: 1744.64 238.92 62.13)
+    Position const CourtyardArrival     = { 1735.00f, 239.00f,  62.63f, 6.248f };      // spell_target_position of SPELL_TELEPORT_TO_LORDAERON
+    Position const SaurfangCourtyard    = { 1745.00f, 235.50f,  62.13f, 3.14f };
     Position const SaurfangFrontLine    = { 1856.80f, 238.30f,  62.13f, 0.00f };
 }
 

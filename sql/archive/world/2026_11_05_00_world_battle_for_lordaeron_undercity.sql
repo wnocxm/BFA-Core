@@ -143,9 +143,9 @@ INSERT INTO `creature_summon_groups` (`summonerId`, `summonerType`, `groupId`, `
 (1760, 2, 9, 131137, 1612.13, 189.22, -43.02, 0.470, 8, 0),
 (1760, 2, 9, 131138, 1637.35, 226.36, -43.02, 4.170, 8, 0),
 (1760, 2, 9, 131139, 1637.61, 239.54, -43.02, 3.110, 8, 0),
--- 10: courtyard
-(1760, 2, 10, 130365, 1628.46, 240.08, 63.93, 6.069, 8, 0),
-(1760, 2, 10, 133240, 1631.50, 234.50, 62.67, 0.900, 8, 0),
+-- 10: keep courtyard, outside the throne room (Sylvanas, Baine; Saurfang comes from the script)
+(1760, 2, 10, 130365, 1750.00, 239.50, 62.13, 3.142, 8, 0),
+(1760, 2, 10, 133240, 1745.00, 244.50, 62.13, 3.142, 8, 0),
 (1760, 2, 10, 130389, 1700.00, 229.00, 62.67, 0.000, 8, 0),
 (1760, 2, 10, 130390, 1700.00, 235.00, 62.67, 0.000, 8, 0),
 (1760, 2, 10, 130391, 1700.00, 245.00, 62.67, 0.000, 8, 0),
@@ -261,7 +261,7 @@ INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `use
 
 DELETE FROM `spell_target_position` WHERE `ID` = 259094;
 INSERT INTO `spell_target_position` (`ID`, `EffectIndex`, `MapID`, `PositionX`, `PositionY`, `PositionZ`, `VerifiedBuild`) VALUES
-(259094, 0, 1760, 1645.00, 240.00, 62.67, 0);
+(259094, 0, 1760, 1735.00, 239.00, 62.63, 0);
 
 -- Isabella: retail gossip text of the Horde option (BroadcastText 156564)
 UPDATE `gossip_menu_option` SET `OptionText` = 'I am ready to go to the Undercity.', `OptionBroadcastTextId` = 156564 WHERE `MenuId` = 19870 AND `OptionIndex` = 1;
