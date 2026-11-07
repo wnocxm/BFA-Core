@@ -60,11 +60,16 @@ namespace
     // line if no path is found. Dugi guide points (1653.6, 117.9) and (1597.0, 106.2).
     // Wiki: "Head south along the Canals toward the Rogues' Quarter", then "continue
     // through the Canals to the center". The canal at y~107 has a portcullis at each end.
-    std::vector<Position> const RouteToAmbush =
+    // Spies in Our Midst: after his first fight Saurfang waits here (placed in game).
+    std::vector<Position> const RouteToSpiesWatch =
     {
         { 1700.00f,  66.00f, -62.29f, 0.0f }, // Saurfang's room
         { 1691.11f,  72.12f, -62.29f, 0.0f }, // north portcullis of the room
-        { 1681.10f,  95.73f, -62.09f, 0.0f },
+        { 1692.334473f, 141.002945f, -55.214329f, 0.0f },
+    };
+
+    std::vector<Position> const RouteToAmbush =
+    {
         { 1653.60f, 117.90f, -62.00f, 0.0f },
         { 1632.62f, 108.90f, -62.14f, 0.0f }, // canal portcullis (east)
         { 1597.00f, 106.20f, -62.18f, 0.0f },
@@ -87,7 +92,6 @@ namespace
     std::vector<Position> const RouteToFrontLine = { SaurfangFrontLine };
 
     constexpr float SAURFANG_ENGAGE_RANGE       = 20.0f;
-    constexpr float SAURFANG_FOLLOW_DISTANCE    = 6.0f;
     constexpr float SAURFANG_POINT_REACHED      = 3.0f;
     constexpr float SAURFANG_LEASH_RANGE        = 40.0f;
 
@@ -103,12 +107,13 @@ namespace
 enum class SaurfangMode : uint8
 {
     Idle,
-    FightAlongside, // Spies in Our Midst
+    FirstFight, // Spies in Our Midst: one fight, then to the watch point
     Route,
 };
 
 enum class SaurfangRouteEnd : uint8
 {
+    SpiesWatch,
     Ambush,
     Gate,
     Heart,
@@ -351,7 +356,8 @@ private:
         _spies = SummonGroup(SUMMON_GROUP_SPIES);
         SummonCaptives();
 
-        _saurfangMode = SaurfangMode::FightAlongside;
+        _saurfangMode = SaurfangMode::FirstFight;
+        _saurfangFought = false;
     }
 
     void SummonCaptives()
@@ -564,6 +570,8 @@ private:
 
         if (saurfang->IsInCombat())
         {
+            _saurfangFought = true;
+
             // A fight he cannot finish (no target, or one far out of reach) must not stop him.
             Unit* victim = saurfang->GetVictim();
             if (victim && saurfang->GetDistance(victim) <= SAURFANG_LEASH_RANGE)
@@ -574,9 +582,11 @@ private:
         // After a fight he carries on from where he is instead of walking back.
         saurfang->SetHomePosition(*saurfang);
 
-        // He fights whoever is in his way, whatever he is doing. Targets come from the
-        // scenario's own enemy lists: factions 2501/2502 are not hostile by template.
-        if (Creature* enemy = NearestEnemyOf(saurfang))
+        // He fights whoever is in his way while fighting or walking; waiting, he only
+        // defends himself. Targets come from the scenario's own enemy lists: factions
+        // 2501/2502 are not hostile by template.
+        Creature* enemy = _saurfangMode != SaurfangMode::Idle ? NearestEnemyOf(saurfang) : nullptr;
+        if (enemy)
         {
             TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang attacks %s (%u)", enemy->GetName().c_str(), enemy->GetEntry());
             saurfang->AI()->AttackStart(enemy);
@@ -587,13 +597,11 @@ private:
 
         switch (_saurfangMode)
         {
-            case SaurfangMode::FightAlongside:
-            {
-                if (Player* player = GetFirstAlivePlayer())
-                    if (saurfang->GetDistance(player) > SAURFANG_FOLLOW_DISTANCE)
-                        saurfang->GetMotionMaster()->MovePoint(0, player->GetPosition());
+            case SaurfangMode::FirstFight:
+                // His first fight is over: he takes position and waits for the next step.
+                if (_saurfangFought)
+                    StartSaurfangRoute(RouteToSpiesWatch, SaurfangRouteEnd::SpiesWatch);
                 break;
-            }
             case SaurfangMode::Route:
             {
                 Position const& target = (*_saurfangRoute)[_saurfangRouteIndex];
@@ -648,15 +656,6 @@ private:
                         && (!nearest || saurfang->GetDistance(enemy) < saurfang->GetDistance(nearest)))
                         nearest = enemy;
         return nearest;
-    }
-
-    Player* GetFirstAlivePlayer() const
-    {
-        for (auto& ref : instance->GetPlayers())
-            if (Player* player = ref.GetSource())
-                if (player->IsAlive() && !player->IsBeingTeleported())
-                    return player;
-        return nullptr;
     }
 
     // ---- Per-second checks -----------------------------------------------------------
@@ -891,6 +890,7 @@ private:
     std::vector<Position> const* _saurfangRoute = nullptr;
     size_t _saurfangRouteIndex = 0;
     SaurfangRouteEnd _saurfangRouteEnd = SaurfangRouteEnd::Ambush;
+    bool _saurfangFought = false;
     GuidSet _magicQuarterPortcullises;
     GuidSet _canalPortcullises;
     GuidSet _heartPortcullises;

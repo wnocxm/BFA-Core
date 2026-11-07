@@ -171,8 +171,11 @@ INSERT INTO `creature_summon_groups` (`summonerId`, `summonerType`, `groupId`, `
 (1760, 2, 10, 130390, 1805.00, 245.00, 62.67, 0.000, 8, 0),
 (1760, 2, 10, 130391, 1805.00, 251.00, 62.67, 0.000, 8, 0);
 
--- Saurfang leads the way
+-- Saurfang leads the way, with his axe (same weapon as the other BfA Saurfangs, 14720 and 129179)
 UPDATE `creature_template` SET `ScriptName` = 'npc_lordaeron_saurfang' WHERE `entry` = 130367;
+DELETE FROM `creature_equip_template` WHERE `CreatureID` = 130367;
+INSERT INTO `creature_equip_template` (`CreatureID`, `ID`, `ItemID1`, `AppearanceModID1`, `ItemVisual1`, `ItemID2`, `AppearanceModID2`, `ItemVisual2`, `ItemID3`, `AppearanceModID3`, `ItemVisual3`, `VerifiedBuild`) VALUES
+(130367, 1, 155857, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
 -- Anastasia Hartwell
 DELETE FROM `creature_text` WHERE `CreatureID` = 130938;
