@@ -187,6 +187,11 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             case GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_3:
                 _magicQuarterPortcullises.insert(go->GetGUID());
                 break;
+            case GO_SPAWN_CANAL_PORTCULLIS:
+            case GO_SPAWN_HEART_PORTCULLIS_1:
+            case GO_SPAWN_HEART_PORTCULLIS_2:
+                _canalPortcullises.insert(go->GetGUID());
+                break;
             default:
                 break;
         }
@@ -368,6 +373,11 @@ private:
                 if (creature->GetEntry() == NPC_MIRABELLE || creature->GetEntry() == NPC_RENZIK_THE_SHIV)
                     MakeCivilian(creature);
         _gateGuards = SummonGroup(SUMMON_GROUP_GATE_GUARDS);
+        for (ObjectGuid const& guid : _canalPortcullises)
+            if (GameObject* portcullis = instance->GetGameObject(guid))
+                portcullis->SetGoState(GO_STATE_ACTIVE);
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: %u canal portcullis opened", uint32(_canalPortcullises.size()));
+
         StartSaurfangRoute(RouteToAmbush, SaurfangRouteEnd::Ambush);
     }
 
@@ -420,9 +430,16 @@ private:
     {
         GuidSet citizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
         Merge(_heartCitizens, citizens);
+        // Evacuated by clicking them (npc_spellclick_spells casts SPELL_EVACUATE on them):
+        // the override bar of SPELL_EVACUATE_OVERRIDE is not shown by this core.
         for (ObjectGuid const& guid : citizens)
+        {
             if (Creature* citizen = instance->GetCreature(guid))
+            {
                 MakeCivilian(citizen);
+                citizen->SetNpcFlags(UNIT_NPC_FLAG_SPELLCLICK);
+            }
+        }
     }
 
     void EvacuateCitizensNear(Player* player)
@@ -553,10 +570,14 @@ private:
         // After a fight he carries on from where he is instead of walking back.
         saurfang->SetHomePosition(*saurfang);
 
-        // He fights whoever is in his way, whatever he is doing.
-        if (Unit* enemy = saurfang->SelectNearestTarget(SAURFANG_ENGAGE_RANGE))
+        // He fights whoever is in his way, whatever he is doing. Targets come from the
+        // scenario's own enemy lists: factions 2501/2502 are not hostile by template.
+        if (Creature* enemy = NearestEnemyOf(saurfang))
         {
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang attacks %s (%u)", enemy->GetName().c_str(), enemy->GetEntry());
             saurfang->AI()->AttackStart(enemy);
+            if (!enemy->IsInCombat() && enemy->IsAIEnabled)
+                enemy->AI()->AttackStart(saurfang);
             return;
         }
 
@@ -610,6 +631,18 @@ private:
             default:
                 break;
         }
+    }
+
+    Creature* NearestEnemyOf(Creature* saurfang) const
+    {
+        Creature* nearest = nullptr;
+        for (GuidSet const* enemies : { &_spies, &_druids, &_heartEnemies })
+            for (ObjectGuid const& guid : *enemies)
+                if (Creature* enemy = instance->GetCreature(guid))
+                    if (enemy->IsAlive() && saurfang->IsWithinDist(enemy, SAURFANG_ENGAGE_RANGE)
+                        && (!nearest || saurfang->GetDistance(enemy) < saurfang->GetDistance(nearest)))
+                        nearest = enemy;
+        return nearest;
     }
 
     Player* GetFirstAlivePlayer() const
@@ -849,6 +882,7 @@ private:
     size_t _saurfangRouteIndex = 0;
     SaurfangRouteEnd _saurfangRouteEnd = SaurfangRouteEnd::Ambush;
     GuidSet _magicQuarterPortcullises;
+    GuidSet _canalPortcullises;
     std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;
     GuidSet _spies;

@@ -234,6 +234,35 @@ INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (259094, 'spell_lordaeron_teleport_to_lordaeron'),
 (269807, 'spell_lordaeron_leave_for_lordaeron_queue');
 
+-- Evacuate the Heart of the City: clicking a citizen casts "Evacuate!" (261807) on it.
+-- The override bar granted by 261808 is not shown by this core, so citizens are clicked instead.
+DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` IN (130687, 130959, 130960, 130961, 130962, 130963, 130964, 130965, 130966, 130967, 130968, 130969, 130970, 130971, 130972, 130973, 130974, 130975, 130976, 130977, 130978, 130979, 130980, 130981) AND `spell_id` = 261807;
+INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
+(130687, 261807, 1, 0),
+(130959, 261807, 1, 0),
+(130960, 261807, 1, 0),
+(130961, 261807, 1, 0),
+(130962, 261807, 1, 0),
+(130963, 261807, 1, 0),
+(130964, 261807, 1, 0),
+(130965, 261807, 1, 0),
+(130966, 261807, 1, 0),
+(130967, 261807, 1, 0),
+(130968, 261807, 1, 0),
+(130969, 261807, 1, 0),
+(130970, 261807, 1, 0),
+(130971, 261807, 1, 0),
+(130972, 261807, 1, 0),
+(130973, 261807, 1, 0),
+(130974, 261807, 1, 0),
+(130975, 261807, 1, 0),
+(130976, 261807, 1, 0),
+(130977, 261807, 1, 0),
+(130978, 261807, 1, 0),
+(130979, 261807, 1, 0),
+(130980, 261807, 1, 0),
+(130981, 261807, 1, 0);
+
 -- To Battle!: Anastasia's portal to the keep courtyard
 DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` = 126680;
 INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
