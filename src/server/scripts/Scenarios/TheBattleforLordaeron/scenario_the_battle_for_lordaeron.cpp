@@ -24,6 +24,7 @@
 #include "Log.h"
 #include "Map.h"
 #include "MotionMaster.h"
+#include "MoveSpline.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
@@ -55,6 +56,37 @@ namespace
     constexpr Milliseconds SAURFANG_BRIEFING_LENGTH = 38809ms;
     constexpr Milliseconds UNDERCITY_EVACUATED_LENGTH = 35675ms;
 
+    // Saurfang's routes. Short legs: each one is walked with pathfinding, or in a straight
+    // line if no path is found. Dugi guide points (1653.6, 117.9) and (1597.0, 106.2).
+    std::vector<Position> const RouteToAmbush =
+    {
+        { 1700.00f,  66.00f, -62.29f, 0.0f }, // Saurfang's room
+        { 1691.11f,  72.12f, -62.29f, 0.0f }, // north portcullis of the room
+        { 1681.10f,  95.73f, -62.09f, 0.0f },
+        { 1653.60f, 117.90f, -62.00f, 0.0f },
+        { 1597.00f, 106.20f, -62.18f, 0.0f },
+        { 1596.00f, 126.00f, -62.18f, 1.57f }, // Mirabelle and Renzik cornered just ahead
+    };
+
+    std::vector<Position> const RouteToGate =
+    {
+        { 1595.30f, 160.00f, -62.18f, 0.0f },
+        { 1596.50f, 167.00f, -62.18f, 1.57f },
+    };
+
+    std::vector<Position> const RouteToHeart =
+    {
+        { 1595.27f, 215.00f, -62.02f, 0.0f },
+        SaurfangHeart,
+    };
+
+    std::vector<Position> const RouteToFrontLine = { SaurfangFrontLine };
+
+    constexpr float SAURFANG_ENGAGE_RANGE       = 20.0f;
+    constexpr float SAURFANG_FOLLOW_DISTANCE    = 6.0f;
+    constexpr float SAURFANG_POINT_REACHED      = 3.0f;
+    constexpr float SAURFANG_LEASH_RANGE        = 40.0f;
+
     // Undercity elevators, where evacuated citizens head before leaving.
     Position const HeartExits[] =
     {
@@ -63,6 +95,21 @@ namespace
         { 1596.21f, 302.40f, -40.66f, 0.0f },
     };
 }
+
+enum class SaurfangMode : uint8
+{
+    Idle,
+    FightAlongside, // Spies in Our Midst
+    Route,
+};
+
+enum class SaurfangRouteEnd : uint8
+{
+    Ambush,
+    Gate,
+    Heart,
+    FrontLine,
+};
 
 struct scenario_the_battle_for_lordaeron : public InstanceScript
 {
@@ -117,9 +164,8 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             if (Creature* creature = instance->GetCreature(guid))
                 MakeCivilian(creature);
 
-        if (Creature* saurfang = Summon(NPC_SAURFANG, SaurfangMagicQuarter))
+        if (Creature* saurfang = SummonSaurfang(SaurfangMagicQuarter))
         {
-            _saurfangGuid = saurfang->GetGUID();
             TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang summoned with AI '%s'", saurfang->GetScriptName().c_str());
         }
 
@@ -171,27 +217,7 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         else if (_druids.erase(guid) && _druids.empty() && GetCurrentStepId() == STEP_H_TO_THE_HEART)
         {
             DoSendScenarioEvent(SCENARIO_EVENT_H_AMBUSH_CLEARED);
-            if (Creature* saurfang = GetSaurfang())
-                saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_GATE);
-        }
-    }
-
-    void SetData(uint32 type, uint32 value) override
-    {
-        if (type != DATA_SAURFANG_REACHED)
-            return;
-
-        switch (value)
-        {
-            case POINT_SAURFANG_AMBUSH:
-                OnSaurfangReachedAmbush();
-                break;
-            case POINT_SAURFANG_GATE:
-                StartConversation(CONVERSATION_OPEN_THE_GATE, GetSaurfang());
-                DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
-                break;
-            default:
-                break;
+            StartSaurfangRoute(RouteToGate, SaurfangRouteEnd::Gate);
         }
     }
 
@@ -306,8 +332,7 @@ private:
         _spies = SummonGroup(SUMMON_GROUP_SPIES);
         SummonCaptives();
 
-        if (Creature* saurfang = GetSaurfang())
-            saurfang->AI()->DoAction(ACTION_SAURFANG_FIGHT_ALONGSIDE);
+        _saurfangMode = SaurfangMode::FightAlongside;
     }
 
     void SummonCaptives()
@@ -336,8 +361,7 @@ private:
                 if (creature->GetEntry() == NPC_MIRABELLE || creature->GetEntry() == NPC_RENZIK_THE_SHIV)
                     MakeCivilian(creature);
         _gateGuards = SummonGroup(SUMMON_GROUP_GATE_GUARDS);
-        if (Creature* saurfang = GetSaurfang())
-            saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_AMBUSH);
+        StartSaurfangRoute(RouteToAmbush, SaurfangRouteEnd::Ambush);
     }
 
     void OnSaurfangReachedAmbush()
@@ -380,8 +404,7 @@ private:
             if (Creature* guard = instance->GetCreature(guid))
                 guard->GetMotionMaster()->MovePoint(0, SaurfangHeart);
 
-        if (Creature* saurfang = GetSaurfang())
-            saurfang->AI()->DoAction(ACTION_SAURFANG_GO_TO_HEART);
+        StartSaurfangRoute(RouteToHeart, SaurfangRouteEnd::Heart);
 
         DoCastSpellOnPlayers(SPELL_EVACUATE_OVERRIDE);
     }
@@ -448,11 +471,9 @@ private:
         if (Creature* saurfang = GetSaurfang())
             saurfang->DespawnOrUnsummon();
 
-        Creature* saurfang = Summon(NPC_SAURFANG, SaurfangCourtyard);
+        Creature* saurfang = SummonSaurfang(SaurfangCourtyard);
         if (!saurfang)
             return;
-
-        _saurfangGuid = saurfang->GetGUID();
 
         Creature* sylvanas = nullptr;
         for (ObjectGuid const& guid : _courtyard)
@@ -464,9 +485,129 @@ private:
 
         _scheduler.Schedule(UNDERCITY_EVACUATED_LENGTH, [this](TaskContext /*context*/)
         {
-            if (Creature* s = GetSaurfang())
-                s->AI()->DoAction(ACTION_SAURFANG_GO_TO_FRONT_LINE);
+            StartSaurfangRoute(RouteToFrontLine, SaurfangRouteEnd::FrontLine);
         });
+    }
+
+    // ---- Saurfang ---------------------------------------------------------------------
+    // Driven from here (not from his AI) so he moves whatever AI the creature runs.
+
+    Creature* SummonSaurfang(Position const& pos)
+    {
+        _saurfangMode = SaurfangMode::Idle;
+        Creature* saurfang = Summon(NPC_SAURFANG, pos);
+        if (!saurfang)
+            return nullptr;
+
+        _saurfangGuid = saurfang->GetGUID();
+        // The template is disarmed and not selectable; here he fights.
+        saurfang->RemoveUnitFlag(UnitFlags(UNIT_FLAG_DISARMED | UNIT_FLAG_NOT_SELECTABLE));
+        saurfang->SetReactState(REACT_AGGRESSIVE);
+        return saurfang;
+    }
+
+    void StartSaurfangRoute(std::vector<Position> const& route, SaurfangRouteEnd end)
+    {
+        _saurfangRoute = &route;
+        _saurfangRouteIndex = 0;
+        _saurfangRouteEnd = end;
+        _saurfangMode = SaurfangMode::Route;
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang sets off (route end %u)", uint32(end));
+    }
+
+    void UpdateSaurfang()
+    {
+        Creature* saurfang = GetSaurfang();
+        if (!saurfang || !saurfang->IsAlive())
+            return;
+
+        if (saurfang->IsInCombat())
+        {
+            // A fight he cannot finish (no target, or one far out of reach) must not stop him.
+            Unit* victim = saurfang->GetVictim();
+            if (victim && saurfang->GetDistance(victim) <= SAURFANG_LEASH_RANGE)
+                return;
+            saurfang->AI()->EnterEvadeMode();
+        }
+
+        // After a fight he carries on from where he is instead of walking back.
+        saurfang->SetHomePosition(*saurfang);
+
+        switch (_saurfangMode)
+        {
+            case SaurfangMode::FightAlongside:
+            {
+                if (Creature* enemy = NearestAlive(_spies, saurfang, SAURFANG_ENGAGE_RANGE))
+                {
+                    saurfang->AI()->AttackStart(enemy);
+                    return;
+                }
+
+                if (Player* player = GetFirstAlivePlayer())
+                    if (saurfang->GetDistance(player) > SAURFANG_FOLLOW_DISTANCE)
+                        saurfang->GetMotionMaster()->MovePoint(0, player->GetPosition());
+                break;
+            }
+            case SaurfangMode::Route:
+            {
+                Position const& target = (*_saurfangRoute)[_saurfangRouteIndex];
+                if (saurfang->GetDistance(target) > SAURFANG_POINT_REACHED)
+                {
+                    if (saurfang->movespline->Finalized())
+                        saurfang->GetMotionMaster()->MovePoint(0, target);
+                    return;
+                }
+
+                if (++_saurfangRouteIndex < _saurfangRoute->size())
+                {
+                    saurfang->GetMotionMaster()->MovePoint(0, (*_saurfangRoute)[_saurfangRouteIndex]);
+                    return;
+                }
+
+                _saurfangMode = SaurfangMode::Idle;
+                OnSaurfangRouteEnd(_saurfangRouteEnd);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    void OnSaurfangRouteEnd(SaurfangRouteEnd end)
+    {
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang arrived (route end %u)", uint32(end));
+
+        switch (end)
+        {
+            case SaurfangRouteEnd::Ambush:
+                OnSaurfangReachedAmbush();
+                break;
+            case SaurfangRouteEnd::Gate:
+                StartConversation(CONVERSATION_OPEN_THE_GATE, GetSaurfang());
+                DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
+                break;
+            default:
+                break;
+        }
+    }
+
+    Creature* NearestAlive(GuidSet const& guids, WorldObject const* from, float range) const
+    {
+        Creature* nearest = nullptr;
+        for (ObjectGuid const& guid : guids)
+            if (Creature* creature = instance->GetCreature(guid))
+                if (creature->IsAlive() && from->IsWithinDist(creature, range) && (!nearest || from->GetDistance(creature) < from->GetDistance(nearest)))
+                    nearest = creature;
+        return nearest;
+    }
+
+    Player* GetFirstAlivePlayer() const
+    {
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                if (player->IsAlive() && !player->IsBeingTeleported())
+                    return player;
+        return nullptr;
     }
 
     // ---- Per-second checks -----------------------------------------------------------
@@ -573,6 +714,7 @@ private:
         }
 
         CheckReinforcements(stepId);
+        UpdateSaurfang();
 
         for (auto& ref : instance->GetPlayers())
         {
@@ -691,6 +833,10 @@ private:
     bool _frontLineReached = false;
 
     ObjectGuid _saurfangGuid;
+    SaurfangMode _saurfangMode = SaurfangMode::Idle;
+    std::vector<Position> const* _saurfangRoute = nullptr;
+    size_t _saurfangRouteIndex = 0;
+    SaurfangRouteEnd _saurfangRouteEnd = SaurfangRouteEnd::Ambush;
     GuidSet _magicQuarterPortcullises;
     std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;

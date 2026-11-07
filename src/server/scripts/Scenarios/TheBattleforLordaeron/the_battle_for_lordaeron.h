@@ -181,27 +181,8 @@ enum BattleForLordaeronSummonGroups
 
 enum BattleForLordaeronData
 {
-    DATA_SAURFANG_REACHED               = 1, // value = SaurfangPoints
     DATA_EVACUATE_NEAR                  = 2, // SetGuidData: player that cast SPELL_EVACUATE
     DATA_PLAYER_USED_KEEP_PORTAL        = 3, // SetGuidData: player that used the portal
-};
-
-enum SaurfangPoints
-{
-    POINT_SAURFANG_CANAL                = 1,
-    POINT_SAURFANG_AMBUSH               = 2,
-    POINT_SAURFANG_GATE                 = 3,
-    POINT_SAURFANG_HEART                = 4,
-    POINT_SAURFANG_FRONT_LINE           = 5,
-};
-
-enum SaurfangActions
-{
-    ACTION_SAURFANG_FIGHT_ALONGSIDE     = 0, // Spies in Our Midst: follows the players and fights
-    ACTION_SAURFANG_GO_TO_AMBUSH        = 1,
-    ACTION_SAURFANG_GO_TO_GATE          = 2,
-    ACTION_SAURFANG_GO_TO_HEART         = 3,
-    ACTION_SAURFANG_GO_TO_FRONT_LINE    = 4,
 };
 
 namespace BattleForLordaeron
@@ -210,9 +191,6 @@ namespace BattleForLordaeron
     // the rest from WorldSafeLocs and guides (see RESEARCH.md).
     Position const PlayerStartPos       = { 1770.206665f, 63.413601f, -46.320221f, 2.450299f }; // lfg_dungeon_template 1759 (WorldSafeLocs 6605 is 1770.82, 62.22)
     Position const SaurfangMagicQuarter = { 1713.66f,  63.30f, -62.28f, 0.0f };        // placed in game
-    Position const SaurfangCanal        = { 1626.63f, 130.47f, -62.07f, 3.37f };
-    Position const SaurfangAmbush       = { 1600.50f, 130.50f, -62.18f, 1.57f };
-    Position const SaurfangGate         = { 1596.50f, 167.00f, -62.18f, 1.57f };
     Position const SaurfangHeart        = { 1588.00f, 232.00f, -62.08f, 0.00f };
     Position const MagicQuarterPortal   = { 1705.62f,  41.75f, -63.84f, 0.0f };        // placed in game
     Position const AnastasiaHeart       = { 1585.00f, 225.50f, -62.09f, 1.40f };
