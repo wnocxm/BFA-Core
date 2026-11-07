@@ -82,9 +82,17 @@ class spell_lordaeron_leave_for_lordaeron_queue : public SpellScript
 
 // 261807 - Evacuate!
 // Granted by 261808 (override bar 995) during "Evacuate the Heart of the City".
+// Every citizen the spell hits is evacuated; citizens around the caster count as well.
 class spell_lordaeron_evacuate : public SpellScript
 {
     PrepareSpellScript(spell_lordaeron_evacuate);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        if (Creature* citizen = GetHitCreature())
+            if (InstanceScript* instance = GetCaster()->GetInstanceScript())
+                instance->SetGuidData(DATA_EVACUATE_CITIZEN, citizen->GetGUID());
+    }
 
     void HandleAfterCast()
     {
@@ -94,6 +102,7 @@ class spell_lordaeron_evacuate : public SpellScript
 
     void Register() override
     {
+        OnEffectHitTarget += SpellEffectFn(spell_lordaeron_evacuate::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
         AfterCast += SpellCastFn(spell_lordaeron_evacuate::HandleAfterCast);
     }
 };

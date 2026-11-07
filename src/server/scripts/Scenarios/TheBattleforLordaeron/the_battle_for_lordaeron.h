@@ -182,6 +182,7 @@ enum BattleForLordaeronSummonGroups
 enum BattleForLordaeronData
 {
     DATA_EVACUATE_NEAR                  = 2, // SetGuidData: player that cast SPELL_EVACUATE
+    DATA_EVACUATE_CITIZEN               = 4, // SetGuidData: creature hit by SPELL_EVACUATE
     DATA_PLAYER_USED_KEEP_PORTAL        = 3, // SetGuidData: player that used the portal
 };
 

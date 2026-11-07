@@ -223,6 +223,13 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
 
     void SetGuidData(uint32 type, ObjectGuid data) override
     {
+        if (type == DATA_EVACUATE_CITIZEN)
+        {
+            if (Creature* citizen = instance->GetCreature(data))
+                EvacuateCitizen(citizen);
+            return;
+        }
+
         Player* player = ObjectAccessor::GetPlayer(instance, data);
         if (!player)
             return;
@@ -432,13 +439,21 @@ private:
                 continue;
             }
 
-            itr = _heartCitizens.erase(itr);
-            DoSendScenarioEvent(SCENARIO_EVENT_H_CITIZEN_EVACUATED);
-            LeaveTowards(citizen, *std::min_element(std::begin(HeartExits), std::end(HeartExits), [citizen](Position const& a, Position const& b)
-            {
-                return citizen->GetExactDistSq(a) < citizen->GetExactDistSq(b);
-            }));
+            ++itr;
+            EvacuateCitizen(citizen);
         }
+    }
+
+    void EvacuateCitizen(Creature* citizen)
+    {
+        if (GetCurrentStepId() != STEP_H_EVACUATE_HEART || !_heartCitizens.erase(citizen->GetGUID()))
+            return;
+
+        DoSendScenarioEvent(SCENARIO_EVENT_H_CITIZEN_EVACUATED);
+        LeaveTowards(citizen, *std::min_element(std::begin(HeartExits), std::end(HeartExits), [citizen](Position const& a, Position const& b)
+        {
+            return citizen->GetExactDistSq(a) < citizen->GetExactDistSq(b);
+        }));
     }
 
     // To Battle!: Anastasia opens a portal to the keep, where Sylvanas waits.
@@ -521,6 +536,11 @@ private:
         if (!saurfang || !saurfang->IsAlive())
             return;
 
+        // Whatever AI he runs, keep him able to fight and running, not walking.
+        saurfang->RemoveUnitFlag(UnitFlags(UNIT_FLAG_DISARMED | UNIT_FLAG_NOT_SELECTABLE));
+        saurfang->SetReactState(REACT_AGGRESSIVE);
+        saurfang->SetWalk(false);
+
         if (saurfang->IsInCombat())
         {
             // A fight he cannot finish (no target, or one far out of reach) must not stop him.
@@ -533,16 +553,17 @@ private:
         // After a fight he carries on from where he is instead of walking back.
         saurfang->SetHomePosition(*saurfang);
 
+        // He fights whoever is in his way, whatever he is doing.
+        if (Unit* enemy = saurfang->SelectNearestTarget(SAURFANG_ENGAGE_RANGE))
+        {
+            saurfang->AI()->AttackStart(enemy);
+            return;
+        }
+
         switch (_saurfangMode)
         {
             case SaurfangMode::FightAlongside:
             {
-                if (Creature* enemy = NearestAlive(_spies, saurfang, SAURFANG_ENGAGE_RANGE))
-                {
-                    saurfang->AI()->AttackStart(enemy);
-                    return;
-                }
-
                 if (Player* player = GetFirstAlivePlayer())
                     if (saurfang->GetDistance(player) > SAURFANG_FOLLOW_DISTANCE)
                         saurfang->GetMotionMaster()->MovePoint(0, player->GetPosition());
@@ -589,16 +610,6 @@ private:
             default:
                 break;
         }
-    }
-
-    Creature* NearestAlive(GuidSet const& guids, WorldObject const* from, float range) const
-    {
-        Creature* nearest = nullptr;
-        for (ObjectGuid const& guid : guids)
-            if (Creature* creature = instance->GetCreature(guid))
-                if (creature->IsAlive() && from->IsWithinDist(creature, range) && (!nearest || from->GetDistance(creature) < from->GetDistance(nearest)))
-                    nearest = creature;
-        return nearest;
     }
 
     Player* GetFirstAlivePlayer() const
