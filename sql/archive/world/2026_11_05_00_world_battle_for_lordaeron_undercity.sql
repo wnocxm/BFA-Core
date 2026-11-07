@@ -230,41 +230,28 @@ INSERT INTO `conversation_actors` (`ConversationId`, `ConversationActorId`, `Con
 (6789, 0, 0, 130365, 0, 32722), -- Lady Sylvanas Windrunner
 (6789, 0, 0, 130367, 1, 32722); -- High Overlord Saurfang
 
--- Evacuate the Heart of the City: "Evacuate!" ability
+-- Spell scripts (261807 "Evacuate!" is no longer used: citizens are evacuated through gossip)
 DELETE FROM `spell_script_names` WHERE `spell_id` IN (261807, 259094, 269807);
 INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
-(261807, 'spell_lordaeron_evacuate'),
 (259094, 'spell_lordaeron_teleport_to_lordaeron'),
 (269807, 'spell_lordaeron_leave_for_lordaeron_queue');
+DELETE FROM `npc_spellclick_spells` WHERE `spell_id` = 261807;
 
--- Evacuate the Heart of the City: clicking a citizen casts "Evacuate!" (261807) on it.
--- The override bar granted by 261808 is not shown by this core, so citizens are clicked instead.
-DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` IN (130687, 130959, 130960, 130961, 130962, 130963, 130964, 130965, 130966, 130967, 130968, 130969, 130970, 130971, 130972, 130973, 130974, 130975, 130976, 130977, 130978, 130979, 130980, 130981) AND `spell_id` = 261807;
-INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
-(130687, 261807, 1, 0),
-(130959, 261807, 1, 0),
-(130960, 261807, 1, 0),
-(130961, 261807, 1, 0),
-(130962, 261807, 1, 0),
-(130963, 261807, 1, 0),
-(130964, 261807, 1, 0),
-(130965, 261807, 1, 0),
-(130966, 261807, 1, 0),
-(130967, 261807, 1, 0),
-(130968, 261807, 1, 0),
-(130969, 261807, 1, 0),
-(130970, 261807, 1, 0),
-(130971, 261807, 1, 0),
-(130972, 261807, 1, 0),
-(130973, 261807, 1, 0),
-(130974, 261807, 1, 0),
-(130975, 261807, 1, 0),
-(130976, 261807, 1, 0),
-(130977, 261807, 1, 0),
-(130978, 261807, 1, 0),
-(130979, 261807, 1, 0),
-(130980, 261807, 1, 0),
-(130981, 261807, 1, 0);
+-- Evacuate the Heart of the City: talk to a citizen and tell them to get to the mage portal.
+-- Custom menu/text id 600001; texts are BroadcastText 141822-141825.
+DELETE FROM `npc_text` WHERE `ID` = 600001;
+INSERT INTO `npc_text` (`ID`, `Probability0`, `Probability1`, `Probability2`, `Probability3`, `Probability4`, `Probability5`, `Probability6`, `Probability7`, `BroadcastTextID0`, `BroadcastTextID1`, `BroadcastTextID2`, `BroadcastTextID3`, `BroadcastTextID4`, `BroadcastTextID5`, `BroadcastTextID6`, `BroadcastTextID7`, `VerifiedBuild`) VALUES
+(600001, 1, 1, 1, 0, 0, 0, 0, 0, 141822, 141823, 141824, 0, 0, 0, 0, 0, 0);
+
+DELETE FROM `gossip_menu` WHERE `MenuId` = 600001;
+INSERT INTO `gossip_menu` (`MenuId`, `TextId`, `VerifiedBuild`) VALUES
+(600001, 600001, 0);
+
+DELETE FROM `gossip_menu_option` WHERE `MenuId` = 600001;
+INSERT INTO `gossip_menu_option` (`MenuId`, `OptionIndex`, `OptionIcon`, `OptionText`, `OptionBroadcastTextId`, `OptionType`, `OptionNpcFlag`, `VerifiedBuild`) VALUES
+(600001, 0, 0, 'The Undercity is under attack! Get to the mage portal!', 141825, 1, 1, 0);
+
+UPDATE `creature_template` SET `ScriptName` = 'npc_lordaeron_undercity_citizen' WHERE `entry` IN (130687, 130959, 130960, 130961, 130962, 130963, 130964, 130965, 130966, 130967, 130968, 130969, 130970, 130971, 130972, 130973, 130974, 130975, 130976, 130977, 130978, 130979, 130980, 130981);
 
 -- To Battle!: Anastasia's portal to the keep courtyard
 DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` = 126680;

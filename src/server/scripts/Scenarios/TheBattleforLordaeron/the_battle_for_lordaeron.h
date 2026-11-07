@@ -153,12 +153,17 @@ enum BattleForLordaeronGameObjects
     GO_SPAWN_HEART_PORTCULLIS_2         = 210406654, // Portcullis 280729 (1563.16, 204.13)
 };
 
+// Undercity citizens in the heart of the city (custom ids, texts are BroadcastText 141822-141825).
+enum BattleForLordaeronGossip
+{
+    GOSSIP_MENU_UNDERCITY_CITIZEN       = 600001,
+    GOSSIP_OPTION_GET_TO_THE_PORTAL     = 0,     // "The Undercity is under attack! Get to the mage portal!"
+};
+
 enum BattleForLordaeronSpells
 {
     SPELL_LEAVE_FOR_LORDAERON_QUEUE     = 269807, // joins LFG 1759
     SPELL_TELEPORT_TO_LORDAERON         = 259094, // Undercity -> courtyard (spell_target_position)
-    SPELL_EVACUATE_OVERRIDE             = 261808, // override bar 995 = SPELL_EVACUATE
-    SPELL_EVACUATE                      = 261807,
 };
 
 // Conversation ids from a Lordaeron sniff (build 32722), created by spells 273582+ on retail.
@@ -189,8 +194,7 @@ enum BattleForLordaeronSummonGroups
 
 enum BattleForLordaeronData
 {
-    DATA_EVACUATE_NEAR                  = 2, // SetGuidData: player that cast SPELL_EVACUATE
-    DATA_EVACUATE_CITIZEN               = 4, // SetGuidData: creature hit by SPELL_EVACUATE
+    DATA_EVACUATE_CITIZEN               = 4, // SetGuidData: citizen told to get to the mage portal
     DATA_PLAYER_USED_KEEP_PORTAL        = 3, // SetGuidData: player that used the portal
 };
 

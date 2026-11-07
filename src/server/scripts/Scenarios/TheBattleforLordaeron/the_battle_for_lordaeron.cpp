@@ -23,6 +23,7 @@
 #include "MotionMaster.h"
 #include "Player.h"
 #include "ScriptedCreature.h"
+#include "ScriptedGossip.h"
 #include "SpellScript.h"
 
 using namespace BattleForLordaeron;
@@ -80,30 +81,30 @@ class spell_lordaeron_leave_for_lordaeron_queue : public SpellScript
     }
 };
 
-// 261807 - Evacuate!
-// Granted by 261808 (override bar 995) during "Evacuate the Heart of the City".
-// Every citizen the spell hits is evacuated; citizens around the caster count as well.
-class spell_lordaeron_evacuate : public SpellScript
+// Undercity citizens in the heart of the city (Evacuate the Heart of the City).
+// "The Undercity is under attack! Get to the mage portal!" sends them away.
+class npc_lordaeron_undercity_citizen : public CreatureScript
 {
-    PrepareSpellScript(spell_lordaeron_evacuate);
+public:
+    npc_lordaeron_undercity_citizen() : CreatureScript("npc_lordaeron_undercity_citizen") { }
 
-    void HandleHit(SpellEffIndex /*effIndex*/)
+    bool OnGossipHello(Player* player, Creature* creature) override
     {
-        if (Creature* citizen = GetHitCreature())
-            if (InstanceScript* instance = GetCaster()->GetInstanceScript())
-                instance->SetGuidData(DATA_EVACUATE_CITIZEN, citizen->GetGUID());
+        ClearGossipMenuFor(player);
+        AddGossipItemFor(player, GOSSIP_MENU_UNDERCITY_CITIZEN, GOSSIP_OPTION_GET_TO_THE_PORTAL, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF);
+        SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_UNDERCITY_CITIZEN, creature), creature->GetGUID());
+        return true;
     }
 
-    void HandleAfterCast()
+    bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
     {
-        if (InstanceScript* instance = GetCaster()->GetInstanceScript())
-            instance->SetGuidData(DATA_EVACUATE_NEAR, GetCaster()->GetGUID());
-    }
+        CloseGossipMenuFor(player);
+        if (action != GOSSIP_ACTION_INFO_DEF)
+            return false;
 
-    void Register() override
-    {
-        OnEffectHitTarget += SpellEffectFn(spell_lordaeron_evacuate::HandleHit, EFFECT_0, SPELL_EFFECT_DUMMY);
-        AfterCast += SpellCastFn(spell_lordaeron_evacuate::HandleAfterCast);
+        if (InstanceScript* instance = creature->GetInstanceScript())
+            instance->SetGuidData(DATA_EVACUATE_CITIZEN, creature->GetGUID());
+        return true;
     }
 };
 
@@ -130,6 +131,6 @@ void AddSC_the_battle_for_lordaeron()
 {
     RegisterCreatureAI(npc_lordaeron_saurfang);
     RegisterSpellScript(spell_lordaeron_leave_for_lordaeron_queue);
-    RegisterSpellScript(spell_lordaeron_evacuate);
+    new npc_lordaeron_undercity_citizen();
     RegisterSpellScript(spell_lordaeron_teleport_to_lordaeron);
 }

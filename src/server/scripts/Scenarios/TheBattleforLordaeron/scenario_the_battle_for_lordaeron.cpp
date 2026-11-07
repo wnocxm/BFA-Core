@@ -40,7 +40,6 @@ namespace
     constexpr float ANASTASIA_GREET_RANGE       = 30.0f;
     constexpr float RESCUE_RANGE                = 10.0f;
     constexpr float RESCUE_SPY_CLEAR_RANGE      = 10.0f;
-    constexpr float EVACUATE_RANGE              = 10.0f;
     constexpr float COURTYARD_ARRIVAL_RANGE     = 25.0f;
     constexpr float FRONT_LINE_RANGE            = 15.0f;
     constexpr float START_TELEPORT_RANGE        = 40.0f;
@@ -154,9 +153,6 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             });
         }
 
-        if (GetCurrentStepId() == STEP_H_EVACUATE_HEART)
-            player->CastSpell(player, SPELL_EVACUATE_OVERRIDE, true);
-
         if (_started)
             return;
 
@@ -209,12 +205,6 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         }
     }
 
-    void OnPlayerExit(Player* player) override
-    {
-        InstanceScript::OnPlayerExit(player);
-        player->RemoveAurasDueToSpell(SPELL_EVACUATE_OVERRIDE);
-    }
-
     void Update(uint32 diff) override
     {
         _scheduler.Update(diff);
@@ -253,9 +243,6 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
 
         switch (type)
         {
-            case DATA_EVACUATE_NEAR:
-                EvacuateCitizensNear(player);
-                break;
             case DATA_PLAYER_USED_KEEP_PORTAL:
                 // "Use the Portal" is a CRITERIA_TYPE_SEND_EVENT criteria.
                 player->UpdateCriteria(CRITERIA_TYPE_SEND_EVENT, GAME_EVENT_H_USE_PORTAL);
@@ -416,8 +403,8 @@ private:
         });
     }
 
-    // Evacuate the Heart of the City: the gate opens, citizens are sent away with the
-    // "Evacuate!" ability and the infiltrators are cut down.
+    // Evacuate the Heart of the City: citizens are told to get to the mage portal (gossip)
+    // and the infiltrators are cut down.
     void StartEvacuateTheHeart()
     {
         DespawnAll(_ambush);
@@ -432,42 +419,21 @@ private:
                 guard->GetMotionMaster()->MovePoint(0, SaurfangHeart);
 
         StartSaurfangRoute(RouteToHeart, SaurfangRouteEnd::Heart);
-
-        DoCastSpellOnPlayers(SPELL_EVACUATE_OVERRIDE);
     }
 
     void SummonHeartCitizens()
     {
         GuidSet citizens = SummonGroup(SUMMON_GROUP_HEART_CITIZENS);
         Merge(_heartCitizens, citizens);
-        // Evacuated by clicking them (npc_spellclick_spells casts SPELL_EVACUATE on them):
-        // the override bar of SPELL_EVACUATE_OVERRIDE is not shown by this core.
+        // Talking to them offers "The Undercity is under attack! Get to the mage portal!"
+        // (npc_lordaeron_undercity_citizen).
         for (ObjectGuid const& guid : citizens)
         {
             if (Creature* citizen = instance->GetCreature(guid))
             {
                 MakeCivilian(citizen);
-                citizen->SetNpcFlags(UNIT_NPC_FLAG_SPELLCLICK);
+                citizen->SetNpcFlags(UNIT_NPC_FLAG_GOSSIP);
             }
-        }
-    }
-
-    void EvacuateCitizensNear(Player* player)
-    {
-        if (GetCurrentStepId() != STEP_H_EVACUATE_HEART)
-            return;
-
-        for (auto itr = _heartCitizens.begin(); itr != _heartCitizens.end();)
-        {
-            Creature* citizen = instance->GetCreature(*itr);
-            if (!citizen || !player->IsWithinDist(citizen, EVACUATE_RANGE))
-            {
-                ++itr;
-                continue;
-            }
-
-            ++itr;
-            EvacuateCitizen(citizen);
         }
     }
 
@@ -486,7 +452,6 @@ private:
     // To Battle!: Anastasia opens a portal to the keep, where Sylvanas waits.
     void StartToBattle()
     {
-        DoRemoveAurasDueToSpellOnPlayers(SPELL_EVACUATE_OVERRIDE);
         DespawnAll(_heartEnemies);
 
         Creature* saurfang = GetSaurfang();
