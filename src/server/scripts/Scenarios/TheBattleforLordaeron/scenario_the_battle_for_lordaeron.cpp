@@ -44,6 +44,10 @@ namespace
     constexpr float FRONT_LINE_RANGE            = 15.0f;
     constexpr float START_TELEPORT_RANGE        = 40.0f;
     constexpr uint32 FACTION_SCENARIO_ENEMY     = 2502;
+
+    // creature guids of the Alliance scenario's sniffed spawns on map 1760 (build 27219)
+    constexpr ObjectGuid::LowType FIRST_ALLIANCE_VIEW_SPAWN = 210440933;
+    constexpr ObjectGuid::LowType LAST_ALLIANCE_VIEW_SPAWN  = 210442002;
     constexpr uint32 FIRST_SCENARIO_CREATURE_ENTRY = 130000; // lower entries are map 0 Undercity residents
 
     constexpr Milliseconds SPIES_VANISH_DELAY   = 11533ms; // "<whistles>" line of CONVERSATION_SPIES_CORNERED
@@ -123,11 +127,13 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
 {
     scenario_the_battle_for_lordaeron(InstanceMap* map) : InstanceScript(map) { }
 
-    // The static spawns of map 1760 show the battle from the Alliance scenario's point of
-    // view. The Horde scenario summons its own creatures step by step instead.
-    uint32 GetCreatureEntry(ObjectGuid::LowType /*spawnId*/, CreatureData const* data) override
+    // The sniffed static spawns of map 1760 show the battle from the Alliance scenario's
+    // point of view; the Horde scenario summons its own creatures step by step instead.
+    // Other spawns on the map (e.g. added with .npc add) are kept.
+    uint32 GetCreatureEntry(ObjectGuid::LowType spawnId, CreatureData const* data) override
     {
-        return IsHordeScenario() ? 0 : data->id;
+        bool allianceViewSpawn = spawnId >= FIRST_ALLIANCE_VIEW_SPAWN && spawnId <= LAST_ALLIANCE_VIEW_SPAWN;
+        return IsHordeScenario() && allianceViewSpawn ? 0 : data->id;
     }
 
     void OnPlayerEnter(Player* player) override
