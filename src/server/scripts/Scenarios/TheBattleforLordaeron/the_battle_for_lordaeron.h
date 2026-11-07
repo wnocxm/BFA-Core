@@ -144,8 +144,11 @@ enum BattleForLordaeronGameObjects
     GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_2 = 210406625, // Portcullis 278768 (1731.04, 102.81)
     GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_3 = 210406656, // Portcullis 278734 (1638.82, 66.29)
 
-    // Portcullises on Saurfang's way to the heart of the city, opened when To the Heart! starts.
-    GO_SPAWN_CANAL_PORTCULLIS           = 210406648, // Portcullis 278921 (1632.62, 108.90)
+    // Canal toward the Rogues' Quarter, opened when Spies in Our Midst ends.
+    GO_SPAWN_CANAL_PORTCULLIS_EAST      = 210406648, // Portcullis 278921 (1632.62, 108.90)
+    GO_SPAWN_CANAL_PORTCULLIS_WEST      = 210406652, // Portcullis 278734 (1560.05, 108.27)
+
+    // Gate of the heart of the city, opened when Saurfang reaches it ("Open the gate!").
     GO_SPAWN_HEART_PORTCULLIS_1         = 210406650, // Portcullis 280729 (1559.52, 208.51)
     GO_SPAWN_HEART_PORTCULLIS_2         = 210406654, // Portcullis 280729 (1563.16, 204.13)
 };

@@ -58,25 +58,29 @@ namespace
 
     // Saurfang's routes. Short legs: each one is walked with pathfinding, or in a straight
     // line if no path is found. Dugi guide points (1653.6, 117.9) and (1597.0, 106.2).
+    // Wiki: "Head south along the Canals toward the Rogues' Quarter", then "continue
+    // through the Canals to the center". The canal at y~107 has a portcullis at each end.
     std::vector<Position> const RouteToAmbush =
     {
         { 1700.00f,  66.00f, -62.29f, 0.0f }, // Saurfang's room
         { 1691.11f,  72.12f, -62.29f, 0.0f }, // north portcullis of the room
         { 1681.10f,  95.73f, -62.09f, 0.0f },
         { 1653.60f, 117.90f, -62.00f, 0.0f },
+        { 1632.62f, 108.90f, -62.14f, 0.0f }, // canal portcullis (east)
         { 1597.00f, 106.20f, -62.18f, 0.0f },
-        { 1596.00f, 126.00f, -62.18f, 1.57f }, // Mirabelle and Renzik cornered just ahead
+        { 1582.00f, 107.50f, -62.18f, 3.14f }, // Mirabelle and Renzik cornered just ahead
     };
 
     std::vector<Position> const RouteToGate =
     {
-        { 1595.30f, 160.00f, -62.18f, 0.0f },
-        { 1596.50f, 167.00f, -62.18f, 1.57f },
+        { 1560.05f, 108.27f, -61.62f, 0.0f }, // canal portcullis (west)
+        { 1560.00f, 150.00f, -62.10f, 0.0f },
+        { 1558.50f, 200.00f, -60.75f, 0.79f }, // in front of the heart's gate
     };
 
     std::vector<Position> const RouteToHeart =
     {
-        { 1595.27f, 215.00f, -62.02f, 0.0f },
+        { 1566.00f, 212.00f, -60.75f, 0.0f }, // through the gate
         SaurfangHeart,
     };
 
@@ -187,10 +191,13 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             case GO_SPAWN_MAGIC_QUARTER_PORTCULLIS_3:
                 _magicQuarterPortcullises.insert(go->GetGUID());
                 break;
-            case GO_SPAWN_CANAL_PORTCULLIS:
+            case GO_SPAWN_CANAL_PORTCULLIS_EAST:
+            case GO_SPAWN_CANAL_PORTCULLIS_WEST:
+                _canalPortcullises.insert(go->GetGUID());
+                break;
             case GO_SPAWN_HEART_PORTCULLIS_1:
             case GO_SPAWN_HEART_PORTCULLIS_2:
-                _canalPortcullises.insert(go->GetGUID());
+                _heartPortcullises.insert(go->GetGUID());
                 break;
             default:
                 break;
@@ -373,10 +380,7 @@ private:
                 if (creature->GetEntry() == NPC_MIRABELLE || creature->GetEntry() == NPC_RENZIK_THE_SHIV)
                     MakeCivilian(creature);
         _gateGuards = SummonGroup(SUMMON_GROUP_GATE_GUARDS);
-        for (ObjectGuid const& guid : _canalPortcullises)
-            if (GameObject* portcullis = instance->GetGameObject(guid))
-                portcullis->SetGoState(GO_STATE_ACTIVE);
-        TC_LOG_INFO("scripts", "Battle for Lordaeron: %u canal portcullis opened", uint32(_canalPortcullises.size()));
+        OpenPortcullises(_canalPortcullises, "canal");
 
         StartSaurfangRoute(RouteToAmbush, SaurfangRouteEnd::Ambush);
     }
@@ -626,6 +630,7 @@ private:
                 break;
             case SaurfangRouteEnd::Gate:
                 StartConversation(CONVERSATION_OPEN_THE_GATE, GetSaurfang());
+                OpenPortcullises(_heartPortcullises, "heart");
                 DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_HEART);
                 break;
             default:
@@ -799,6 +804,20 @@ private:
         }
     }
 
+    void OpenPortcullises(GuidSet const& portcullises, char const* name)
+    {
+        uint32 opened = 0;
+        for (ObjectGuid const& guid : portcullises)
+        {
+            if (GameObject* portcullis = instance->GetGameObject(guid))
+            {
+                portcullis->SetGoState(GO_STATE_ACTIVE);
+                ++opened;
+            }
+        }
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: %u %s portcullis opened", opened, name);
+    }
+
     // Under Siege: Saurfang briefs the players; when he is done the portcullis to the
     // canals opens and the step is reported.
     void StartBriefing(Creature* saurfang)
@@ -809,16 +828,7 @@ private:
 
         _scheduler.Schedule(SAURFANG_BRIEFING_LENGTH, [this](TaskContext /*context*/)
         {
-            uint32 opened = 0;
-            for (ObjectGuid const& guid : _magicQuarterPortcullises)
-            {
-                if (GameObject* portcullis = instance->GetGameObject(guid))
-                {
-                    portcullis->SetGoState(GO_STATE_ACTIVE);
-                    ++opened;
-                }
-            }
-            TC_LOG_INFO("scripts", "Battle for Lordaeron: Saurfang briefing ended, %u portcullis opened", opened);
+            OpenPortcullises(_magicQuarterPortcullises, "Magic Quarter");
 
             DoSendScenarioEvent(SCENARIO_EVENT_H_REPORT_TO_SAURFANG);
         });
@@ -883,6 +893,7 @@ private:
     SaurfangRouteEnd _saurfangRouteEnd = SaurfangRouteEnd::Ambush;
     GuidSet _magicQuarterPortcullises;
     GuidSet _canalPortcullises;
+    GuidSet _heartPortcullises;
     std::set<uint8> _pendingReinforcements;
     GuidSet _magicQuarterCitizens;
     GuidSet _spies;
