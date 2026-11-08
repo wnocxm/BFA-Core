@@ -2043,6 +2043,11 @@ private:
         if (wounded->GetEntry() != NPC_WOUNDED_HORDE_SOLDIER || !_armyDecor.count(wounded->GetGUID()) || !_rescuedWounded.insert(wounded->GetGUID()).second)
             return;
 
+        // Not in Criteria.db2 (the step only has "drive back" and "use blight"); counted as
+        // driving the Alliance back so saving the wounded moves the progress bar too.
+        if (GetCurrentStepId() == STEP_H_OUR_SECRET_WEAPON)
+            DoSendScenarioEvent(SCENARIO_EVENT_H_ALLIANCE_DRIVEN_BACK);
+
         wounded->RemoveAurasDueToSpell(SPELL_WOUNDED);
         wounded->SetNpcFlags(UNIT_NPC_FLAG_NONE);
         wounded->SetStandState(UNIT_STAND_STATE_STAND);
