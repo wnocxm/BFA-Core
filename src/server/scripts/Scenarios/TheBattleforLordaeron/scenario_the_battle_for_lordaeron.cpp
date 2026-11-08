@@ -40,6 +40,7 @@
 #include "TaskScheduler.h"
 #include "TemporarySummon.h"
 #include "WorldSession.h"
+#include <limits>
 #include <map>
 #include <unordered_set>
 
@@ -76,8 +77,12 @@ namespace
 
     // ---- Steps 6-13 ----
     constexpr uint32 FACTION_SCENARIO_ALLY      = 2501;
-    constexpr float ARMY_ENGAGE_RANGE           = 20.0f;
-    constexpr float ARMY_LEASH_RANGE            = 45.0f;
+    constexpr float ARMY_ENGAGE_RANGE           = 40.0f;  // opponents looked for around a soldier's post
+    constexpr float ARMY_ADVANCE_RANGE          = 150.0f; // no opponent near its post: it advances towards one
+    constexpr float ARMY_MARCH_ENGAGE_RANGE     = 15.0f;  // marching soldiers fight what they run into
+    constexpr uint32 ARMY_MAX_ATTACKERS         = 2;      // per opponent, so the fights spread over the field
+    constexpr float ARMY_HEAL_BELOW_PCT         = 35.0f;  // NPC fights never end; only players kill
+    constexpr float ARMY_WALL_RANGE             = 70.0f;  // archers on the walls shoot down at the field
     constexpr float ESCORT_POINT_REACHED        = 3.0f;
     constexpr float ESCORT_WAIT_RANGE           = 35.0f;  // leaders wait for the players
     constexpr float ARRIVAL_CREDIT_RANGE        = 30.0f;
@@ -86,7 +91,7 @@ namespace
     constexpr size_t MIN_CHOKEPOINT_ENEMIES_LEFT = 15;
     constexpr Milliseconds WAR_MACHINE_ARRIVES_LENGTH = 24513ms; // CONVERSATION_WAR_MACHINE_ARRIVES
     constexpr Milliseconds NEXT_WAVE_DELAY      = 8s;
-    constexpr Milliseconds WAVE_GIVE_UP_DELAY   = 150s;  // a wave with a member stuck out of reach still counts
+    constexpr Milliseconds WAVE_GIVE_UP_DELAY   = 120s;  // a wave with a member stuck out of reach still counts
     constexpr Milliseconds SCENE_FALLBACK       = 60s;   // in case no player reports the end of a scene
     constexpr Milliseconds MOVIE_FALLBACK       = 200s;
     constexpr Milliseconds HEROES_FOLLOW_ME     = 29294ms; // CONVERSATION_CUT_THEM_OFF "Heroes, follow me!"
@@ -198,7 +203,6 @@ enum class EscortEnd : uint8
     NathanosRetreatLeg1,
     NathanosRetreatLeg2,
     NathanosAtCourtyard,
-    SaurfangAtSylvanas,
     SylvanasAtThroneDoor,
 };
 
@@ -228,8 +232,16 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     uint32 GetCreatureEntry(ObjectGuid::LowType spawnId, CreatureData const* data) override
     {
         bool allianceViewSpawn = spawnId >= FIRST_ALLIANCE_VIEW_SPAWN && spawnId <= LAST_ALLIANCE_VIEW_SPAWN;
-        if (IsHordeScenario() && !allianceViewSpawn && data->posZ > 0.0f && AllianceViewEntries.count(data->id))
-            allianceViewSpawn = true;
+        if (IsHordeScenario() && !allianceViewSpawn && data->posZ > 0.0f)
+        {
+            if (AllianceViewEntries.count(data->id))
+                allianceViewSpawn = true;
+            // Nothing on the surface that would attack the Horde players unless the script puts it there.
+            else if (CreatureTemplate const* creatureTemplate = sObjectMgr->GetCreatureTemplate(data->id))
+                if (FactionTemplateEntry const* faction = sFactionTemplateStore.LookupEntry(creatureTemplate->faction))
+                    if (faction->EnemyGroup & (FACTION_MASK_PLAYER | FACTION_MASK_HORDE))
+                        allianceViewSpawn = true;
+        }
         return IsHordeScenario() && allianceViewSpawn ? 0 : data->id;
     }
 
@@ -365,6 +377,13 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         {
             if (Creature* citizen = instance->GetCreature(data))
                 EvacuateCitizen(citizen);
+            return;
+        }
+
+        if (type == DATA_WOUNDED_RESCUED)
+        {
+            if (Creature* wounded = instance->GetCreature(data))
+                RescueWounded(wounded);
             return;
         }
 
@@ -1111,10 +1130,25 @@ private:
         Creature* creature = Summon(entry, pos);
         if (creature)
         {
+            // Horde leaders are on the players' side whatever their template says.
+            bool alliance = entry == NPC_ANDUIN || entry == NPC_JAINA || entry == NPC_GENN || entry == NPC_ALLERIA || entry == NPC_MEKKATORQUE;
+            creature->SetFaction(alliance ? FACTION_SCENARIO_ENEMY : FACTION_SCENARIO_ALLY);
             MakeLeader(creature);
             _phase2Npcs.insert(creature->GetGUID());
         }
         return creature;
+    }
+
+    // Many soldier templates come with flags of their ambient spawns (immune to players or to
+    // NPCs, not selectable); in the battle every soldier can be fought.
+    void PrepareSoldier(Creature* creature, bool alliance, Position const& post)
+    {
+        creature->RemoveUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_ATTACKABLE_1 | UNIT_FLAG_IMMUNE_TO_PC
+            | UNIT_FLAG_IMMUNE_TO_NPC | UNIT_FLAG_NOT_SELECTABLE));
+        creature->SetFaction(alliance ? FACTION_SCENARIO_ENEMY : FACTION_SCENARIO_ALLY);
+        creature->SetReactState(REACT_AGGRESSIVE);
+        creature->SetHomePosition(post);
+        _armyPost[creature->GetGUID()] = post;
     }
 
     // Soldiers of a summon group: Horde ones join the scenario's side, Alliance ones fight it.
@@ -1128,18 +1162,30 @@ private:
             if (!creature)
                 continue;
 
-            if (creature->GetEntry() == NPC_WOUNDED_HORDE_SOLDIER || creature->GetEntry() == NPC_PLAGUE_WAGON || groupId == SUMMON_GROUP_KEEP_WALLS)
+            if (creature->GetEntry() == NPC_WOUNDED_HORDE_SOLDIER)
             {
-                if (groupId != SUMMON_GROUP_KEEP_WALLS)
-                    MakeCivilian(creature);
-                if (creature->GetEntry() == NPC_WOUNDED_HORDE_SOLDIER)
-                    creature->SetStandState(UNIT_STAND_STATE_DEAD);
+                // Saurfang: "Your brothers and sisters lie wounded on the battlefield!"
+                // Bandaging them (spellclick, like the Alliance scenario's wounded) gets them back on their feet.
+                creature->SetReactState(REACT_PASSIVE);
+                creature->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
+                creature->SetNpcFlags(UNIT_NPC_FLAG_SPELLCLICK);
+                creature->AddAura(SPELL_WOUNDED, creature);
                 _armyDecor.insert(guid);
                 continue;
             }
 
-            creature->SetFaction(alliance ? FACTION_SCENARIO_ENEMY : FACTION_SCENARIO_ALLY);
-            creature->SetReactState(REACT_AGGRESSIVE);
+            if (creature->GetEntry() == NPC_PLAGUE_WAGON)
+            {
+                MakeCivilian(creature);
+                _armyDecor.insert(guid);
+                continue;
+            }
+
+            PrepareSoldier(creature, alliance, *creature);
+
+            // The soldiers on the walls shoot from up there.
+            if (groupId == SUMMON_GROUP_KEEP_WALLS)
+                creature->SetControlled(true, UNIT_STATE_ROOT);
             soldiers.insert(guid);
         }
         return soldiers;
@@ -1154,42 +1200,44 @@ private:
         DespawnAll(_waveUnits);
         DespawnAll(_phase2Npcs);
         _marchTargets.clear();
+        _armyPost.clear();
+        _armyTarget.clear();
         _escorts.clear();
         _arrivalCredits.clear();
         _waveActive = false;
     }
 
-    // Both sides fight whoever of the other side is closest; factions 2501/2502 are not
-    // hostile by template, so the script starts the fights. Alliance soldiers marching
-    // somewhere carry on once nothing is in reach.
+    // The battle: every soldier keeps its post from the sniffed layout and fights an opponent
+    // near it, at most ARMY_MAX_ATTACKERS on the same one, so fights go on all over the field
+    // instead of everyone piling up on the first enemy. Soldiers with nobody near their post
+    // advance towards the closest opponent. Factions 2501/2502 are not hostile by template,
+    // so the script starts the fights. NPCs never finish each other off: the kills are the
+    // players' (a soldier a player hits is no longer healed).
     void UpdateArmies(uint32 stepId)
     {
         PruneGone(_armyAllies);
         PruneGone(_armyEnemies);
         PruneGone(_waveUnits);
 
-        for (ObjectGuid const& guid : _armyAllies)
-            if (Creature* soldier = instance->GetCreature(guid))
-                EngageNearest(soldier, _armyEnemies);
-
-        for (ObjectGuid const& guid : _armyEnemies)
+        std::map<ObjectGuid, uint32> attackers;
+        for (auto itr = _armyTarget.begin(); itr != _armyTarget.end();)
         {
-            Creature* soldier = instance->GetCreature(guid);
-            if (!soldier || EngageNearest(soldier, _armyAllies) || soldier->IsInCombat())
-                continue;
-
-            auto itr = _marchTargets.find(guid);
-            if (itr == _marchTargets.end())
-                continue;
-
-            if (soldier->GetDistance(itr->second) <= ESCORT_POINT_REACHED)
-                _marchTargets.erase(itr);
-            else if (soldier->movespline->Finalized())
+            if ((!_armyAllies.count(itr->first) && !_armyEnemies.count(itr->first))
+                || (!_armyAllies.count(itr->second) && !_armyEnemies.count(itr->second)))
+                itr = _armyTarget.erase(itr);
+            else
             {
-                soldier->SetWalk(false);
-                soldier->GetMotionMaster()->MovePoint(0, itr->second);
+                ++attackers[itr->second];
+                ++itr;
             }
         }
+
+        for (ObjectGuid const& guid : _armyAllies)
+            if (Creature* soldier = instance->GetCreature(guid))
+                UpdateSoldier(soldier, _armyEnemies, attackers);
+        for (ObjectGuid const& guid : _armyEnemies)
+            if (Creature* soldier = instance->GetCreature(guid))
+                UpdateSoldier(soldier, _armyAllies, attackers);
 
         // A wave with a soldier stuck out of reach still ends.
         if (_waveActive && GameTime::GetGameTimeMS() - _waveStartTime > uint32(WAVE_GIVE_UP_DELAY.count()))
@@ -1202,47 +1250,138 @@ private:
         CheckArmyReinforcements(stepId);
     }
 
-    bool EngageNearest(Creature* soldier, GuidSet const& opponents)
+    void UpdateSoldier(Creature* soldier, GuidSet const& opponents, std::map<ObjectGuid, uint32>& attackers)
     {
         if (!soldier->IsAlive() || !soldier->IsAIEnabled)
-            return false;
+            return;
 
-        if (soldier->IsInCombat())
+        ObjectGuid guid = soldier->GetGUID();
+
+        // Fights between NPCs never end with a death; a soldier a player has hit can die.
+        if (!_waveUnits.count(guid) && !soldier->HasLootRecipients() && soldier->GetHealthPct() < ARMY_HEAL_BELOW_PCT)
+            soldier->SetFullHealth();
+
+        // Fighting a player: left alone.
+        if (Unit* victim = soldier->GetVictim())
+            if (victim->GetCharmerOrOwnerPlayerOrPlayerItself())
+                return;
+
+        // Marching (waves, the Alliance charge at the chokepoint): fights only what it runs into.
+        auto march = _marchTargets.find(guid);
+        if (march != _marchTargets.end())
         {
-            Unit* victim = soldier->GetVictim();
-            if (victim && soldier->GetDistance(victim) <= ARMY_LEASH_RANGE)
-                return true;
+            if (Creature* opponent = FindOpponent(soldier, *soldier, ARMY_MARCH_ENGAGE_RANGE, opponents, attackers))
+            {
+                Engage(soldier, opponent, attackers);
+                return;
+            }
+            if (soldier->IsInCombat())
+                return;
+            if (soldier->GetDistance(march->second) <= ESCORT_POINT_REACHED)
+            {
+                _armyPost[guid] = march->second;
+                soldier->SetHomePosition(march->second);
+                _marchTargets.erase(march);
+            }
+            else if (soldier->movespline->Finalized())
+            {
+                soldier->SetWalk(false);
+                soldier->GetMotionMaster()->MovePoint(0, march->second);
+            }
+            return;
         }
 
-        // After a fight a soldier stays where it is instead of walking back.
-        soldier->SetHomePosition(*soldier);
+        Position post = _armyPost.count(guid) ? _armyPost[guid] : Position(*soldier);
 
+        // Keeps fighting its opponent while that one is still around its post.
+        auto current = _armyTarget.find(guid);
+        if (current != _armyTarget.end())
+        {
+            Creature* opponent = instance->GetCreature(current->second);
+            if (opponent && opponent->IsAlive() && opponent->GetDistance(post) <= ARMY_ENGAGE_RANGE)
+            {
+                if (soldier->GetVictim() != opponent)
+                    soldier->AI()->AttackStart(opponent);
+                return;
+            }
+            --attackers[current->second];
+            _armyTarget.erase(current);
+        }
+
+        bool onWall = soldier->HasUnitState(UNIT_STATE_ROOT);
+        if (Creature* opponent = FindOpponent(soldier, post, onWall ? ARMY_WALL_RANGE : ARMY_ENGAGE_RANGE, opponents, attackers))
+        {
+            Engage(soldier, opponent, attackers);
+            return;
+        }
+
+        // Nobody near its post: it advances to the closest opponent and holds there.
+        if (soldier->IsInCombat() || onWall)
+            return;
+        Creature* opponent = FindOpponent(soldier, *soldier, ARMY_ADVANCE_RANGE, opponents, attackers);
+        // Every opponent around already has enough attackers: it joins one of those fights
+        // rather than standing idle.
+        if (!opponent)
+        {
+            if (Creature* crowded = FindOpponent(soldier, post, ARMY_ENGAGE_RANGE, opponents, attackers, std::numeric_limits<uint32>::max()))
+            {
+                Engage(soldier, crowded, attackers);
+                return;
+            }
+            opponent = FindOpponent(soldier, *soldier, ARMY_ADVANCE_RANGE, opponents, attackers, std::numeric_limits<uint32>::max());
+        }
+        if (opponent)
+        {
+            float angle = opponent->GetAngle(soldier);
+            Position front = GroundPos(opponent->GetPositionX() + std::cos(angle) * 6.0f, opponent->GetPositionY() + std::sin(angle) * 6.0f,
+                opponent->GetPositionZ(), soldier->GetOrientation());
+            _armyPost[guid] = front;
+            soldier->SetHomePosition(front);
+            soldier->SetWalk(false);
+            soldier->GetMotionMaster()->MovePoint(0, front);
+        }
+    }
+
+    // The closest opponent around a point that is not already fought by enough soldiers.
+    Creature* FindOpponent(Creature* soldier, Position const& around, float range, GuidSet const& opponents,
+        std::map<ObjectGuid, uint32> const& attackers, uint32 maxAttackers = ARMY_MAX_ATTACKERS) const
+    {
         Creature* nearest = nullptr;
-        float nearestDist = ARMY_ENGAGE_RANGE;
+        float nearestDist = range;
         for (ObjectGuid const& guid : opponents)
         {
-            Creature* opponent = instance->GetCreature(guid);
-            if (!opponent || !opponent->IsAlive())
+            auto count = attackers.find(guid);
+            if (count != attackers.end() && count->second >= maxAttackers)
                 continue;
-            float dist = soldier->GetDistance(opponent);
+
+            Creature* opponent = instance->GetCreature(guid);
+            if (!opponent || !opponent->IsAlive() || opponent == soldier)
+                continue;
+
+            float dist = opponent->GetDistance(around);
             if (dist < nearestDist)
             {
                 nearest = opponent;
                 nearestDist = dist;
             }
         }
+        return nearest;
+    }
 
-        if (!nearest)
-            return false;
-
-        soldier->AI()->AttackStart(nearest);
-        return true;
+    void Engage(Creature* soldier, Creature* opponent, std::map<ObjectGuid, uint32>& attackers)
+    {
+        _armyTarget[soldier->GetGUID()] = opponent->GetGUID();
+        ++attackers[opponent->GetGUID()];
+        soldier->AI()->AttackStart(opponent);
     }
 
     void OnArmyUnitDeath(Creature* creature)
     {
         ObjectGuid guid = creature->GetGUID();
         _armyAllies.erase(guid);
+        _armyPost.erase(guid);
+        _armyTarget.erase(guid);
+        _marchTargets.erase(guid);
 
         bool waveUnit = _waveUnits.erase(guid) > 0;
         if (!_armyEnemies.erase(guid))
@@ -1479,9 +1618,6 @@ private:
                 if (creature)
                     _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_NATHANOS_SAFETY, creature->GetGUID() });
                 break;
-            case EscortEnd::SaurfangAtSylvanas:
-                OnSaurfangMeetsSylvanas();
-                break;
             case EscortEnd::SylvanasAtThroneDoor:
                 if (creature)
                     _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_SYLVANAS, creature->GetGUID() });
@@ -1504,6 +1640,14 @@ private:
     // Out of the gates: the Horde army meets the Alliance front line.
     void StartPushThemBack()
     {
+        // Sylvanas and Baine wait in the courtyard; they never fight the players.
+        for (uint32 entry : { uint32(NPC_SYLVANAS), uint32(NPC_BAINE) })
+            if (Creature* leader = CourtyardLeader(entry))
+            {
+                leader->SetFaction(FACTION_SCENARIO_ALLY);
+                MakeLeader(leader);
+            }
+
         Merge(_armyAllies, SummonArmy(SUMMON_GROUP_FRONT_HORDE, false));
         Merge(_armyEnemies, SummonArmy(SUMMON_GROUP_FRONT_ALLIANCE, true));
         SummonArmy(SUMMON_GROUP_KEEP_WALLS, false);
@@ -1569,8 +1713,7 @@ private:
             float y = WaveSpawn.GetPositionY() + (float(i % 3) - 1.0f) * 4.0f;
             if (Creature* soldier = Summon(entry, GroundPos(x, y, WaveSpawn.GetPositionZ(), WaveSpawn.GetOrientation())))
             {
-                soldier->SetFaction(FACTION_SCENARIO_ENEMY);
-                soldier->SetReactState(REACT_AGGRESSIVE);
+                PrepareSoldier(soldier, true, *soldier);
                 wave.insert(soldier->GetGUID());
                 if (!leader)
                     leader = soldier;
@@ -1862,36 +2005,51 @@ private:
     }
 
     // ---- The Dark Lady ---------------------------------------------------------------------
-    // Saurfang finally shows up; Sylvanas leaves him to his last stand and takes the
-    // champions to the throne room.
+    // Saurfang is not there any more: he stayed out on the battlefield (the Alliance takes him;
+    // the sniff plays his lines as a talking head, he is no actor in the world). Sylvanas
+    // answers him, then Baine, Nathanos and the champions follow her to the throne room.
     void StartTheDarkLady()
     {
         if (_courtyard.empty())
             _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
 
         Creature* sylvanas = CourtyardLeader(NPC_SYLVANAS);
-        if (sylvanas)
-        {
-            sylvanas->NearTeleportTo(SylvanasCourtyard);
-            _sylvanasGuid = sylvanas->GetGUID();
-        }
+        if (!sylvanas)
+            sylvanas = SummonLeader(NPC_SYLVANAS, SylvanasCourtyard);
+        if (!sylvanas)
+            return;
+        MakeLeader(sylvanas);
+        sylvanas->SetFaction(FACTION_SCENARIO_ALLY);
+        _sylvanasGuid = sylvanas->GetGUID();
 
-        if (Creature* saurfang = SummonSaurfang(SaurfangFrontLine))
-            StartEscort(saurfang, { SaurfangCourtyard }, EscortEnd::SaurfangAtSylvanas, false);
-    }
+        if (Creature* baine = CourtyardLeader(NPC_BAINE))
+            _baineGuid = baine->GetGUID();
+        if (!instance->GetCreature(_nathanosGuid))
+            if (Creature* nathanos = SummonLeader(NPC_NATHANOS, NathanosRetreatLeg3.back()))
+                _nathanosGuid = nathanos->GetGUID();
 
-    void OnSaurfangMeetsSylvanas()
-    {
-        Creature* sylvanas = instance->GetCreature(_sylvanasGuid);
         StartConversationNear(CONVERSATION_FINALLY_SHOW_UP, sylvanas);
-
         _scheduler.Schedule(CHAMPIONS_BEAR_WITNESS, [this](TaskContext /*context*/)
         {
             StartEscort(instance->GetCreature(_sylvanasGuid), { SylvanasThroneDoor }, EscortEnd::SylvanasAtThroneDoor, true);
-            // Saurfang stays behind and faces the gates.
-            if (Creature* saurfang = GetSaurfang())
-                saurfang->SetFacingTo(0.0f);
+            StartEscort(instance->GetCreature(_baineGuid), { BaineThroneDoor }, EscortEnd::None, false);
+            StartEscort(instance->GetCreature(_nathanosGuid), { NathanosThroneDoor }, EscortEnd::None, false);
         });
+    }
+
+    // Our Secret Weapon: a bandaged soldier gets up and heads back to the keep.
+    void RescueWounded(Creature* wounded)
+    {
+        if (wounded->GetEntry() != NPC_WOUNDED_HORDE_SOLDIER || !_armyDecor.count(wounded->GetGUID()) || !_rescuedWounded.insert(wounded->GetGUID()).second)
+            return;
+
+        wounded->RemoveAurasDueToSpell(SPELL_WOUNDED);
+        wounded->SetNpcFlags(UNIT_NPC_FLAG_NONE);
+        wounded->SetStandState(UNIT_STAND_STATE_STAND);
+        wounded->HandleEmoteCommand(EMOTE_ONESHOT_SALUTE);
+        wounded->SetWalk(false);
+        wounded->GetMotionMaster()->MovePoint(0, SaurfangFrontLine);
+        wounded->DespawnOrUnsummon(12s);
     }
 
     // ---- Finale ----------------------------------------------------------------------------
@@ -2187,6 +2345,9 @@ private:
     GuidSet _allianceLeaders;
     GuidSet _blightedEnemies;
     std::map<ObjectGuid, Position> _marchTargets;
+    std::map<ObjectGuid, Position> _armyPost;      // where a soldier holds
+    std::map<ObjectGuid, ObjectGuid> _armyTarget;  // the opponent it fights
+    GuidSet _rescuedWounded;
     std::vector<Escort> _escorts;
     std::vector<ArrivalCredit> _arrivalCredits;
     std::vector<Position> _phase2SaurfangRoute;
@@ -2293,6 +2454,26 @@ class spell_lordaeron_blight_spray : public SpellScript
     }
 };
 
+// 249366 - Bandaging... (spellclick of the wounded Horde soldiers in Our Secret Weapon)
+class spell_lordaeron_bandaging : public SpellScript
+{
+    PrepareSpellScript(spell_lordaeron_bandaging);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Creature* target = GetHitCreature();
+        if (!target || target->GetMapId() != MAP_LORDAERON_SCENARIO)
+            return;
+        if (InstanceScript* instance = target->GetInstanceScript())
+            instance->SetGuidData(DATA_WOUNDED_RESCUED, target->GetGUID());
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_lordaeron_bandaging::HandleHit, EFFECT_0, SPELL_EFFECT_HEAL_PCT);
+    }
+};
+
 // Tells the scenario when a player is done with (or skipped) its movies and scenes.
 class lordaeron_player_script : public PlayerScript
 {
@@ -2383,5 +2564,6 @@ void AddSC_scenario_the_battle_for_lordaeron()
     new npc_lordaeron_sludge_guard_trizz();
     new lordaeron_player_script();
     RegisterSpellScript(spell_lordaeron_blight_spray);
+    RegisterSpellScript(spell_lordaeron_bandaging);
     RegisterInstanceScript(scenario_the_battle_for_lordaeron, MAP_LORDAERON_SCENARIO);
 }

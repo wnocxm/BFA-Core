@@ -612,3 +612,13 @@ UPDATE `creature_template` SET `ScriptName` = 'npc_lordaeron_sludge_guard_trizz'
 DELETE FROM `spell_script_names` WHERE `spell_id` = 261748;
 INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
 (261748, 'spell_lordaeron_blight_spray');
+
+-- Our Secret Weapon: the wounded Horde soldiers are bandaged like the Alliance scenario's (125622):
+-- the player casts Bandaging... (249366) on them.
+DELETE FROM `npc_spellclick_spells` WHERE `npc_entry` = 127065;
+INSERT INTO `npc_spellclick_spells` (`npc_entry`, `spell_id`, `cast_flags`, `user_type`) VALUES
+(127065, 249366, 1, 0);
+
+DELETE FROM `spell_script_names` WHERE `spell_id` = 249366 AND `ScriptName` = 'spell_lordaeron_bandaging';
+INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES
+(249366, 'spell_lordaeron_bandaging');

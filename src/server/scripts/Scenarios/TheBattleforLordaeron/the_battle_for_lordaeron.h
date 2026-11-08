@@ -204,6 +204,8 @@ enum BattleForLordaeronSpells
     SPELL_BLIGHT_RESISTANT_GAS_MASK     = 271541,
     SPELL_BLIGHT_CANISTER               = 261723, // override spells 994 (261724, which sprays 261748)
     SPELL_BLIGHT_SPRAY                  = 261748,
+    SPELL_BANDAGING                     = 249366, // spellclick of the wounded soldiers
+    SPELL_WOUNDED                       = 255521, // the wounded soldiers' aura (Alliance scenario's 125622)
 };
 
 // SceneScriptPackage / Movie.db2
@@ -277,6 +279,7 @@ enum BattleForLordaeronData
     DATA_MOVIE_COMPLETE                 = 6, // SetData: a player finished (or skipped) a movie
     DATA_SCENE_COMPLETE                 = 7, // SetData: a player finished (or skipped) a scene
     DATA_BLIGHT_SPRAY_HIT               = 8, // SetGuidData: creature hit by Blight Spray
+    DATA_WOUNDED_RESCUED                = 9, // SetGuidData: wounded soldier bandaged by a player
 };
 
 namespace BattleForLordaeron
@@ -318,6 +321,8 @@ namespace BattleForLordaeron
     Position const BaineCryHavoc        = { 1477.00f, 258.00f,  61.70f, 1.20f };
     Position const SylvanasCourtyard    = { 1799.169678f, 237.653152f, 62.551392f, 3.142f }; // in-game .gps
     Position const SylvanasThroneDoor   = { 1712.56f, 239.19f,  62.10f, 3.14f };       // The Dark Lady
+    Position const BaineThroneDoor      = { 1716.50f, 243.50f,  62.10f, 3.14f };
+    Position const NathanosThroneDoor   = { 1716.50f, 235.00f,  62.10f, 3.14f };
     Position const OrgrimmarGates       = { 1568.61f, -4398.67f, 16.13f, 0.60f };      // map 1, WorldSafeLocs 6638
 }
 
