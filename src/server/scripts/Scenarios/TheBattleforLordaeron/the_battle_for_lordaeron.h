@@ -180,6 +180,10 @@ enum BattleForLordaeronGameObjects
     GO_SPAWN_HEART_PORTCULLIS_2         = 210406654, // Portcullis 280729 (1563.16, 204.13)
     GO_SPAWN_KEEP_FRONT_GATE_INNER      = 210406716, // Front Gate 271743 (1849.43, 237.98)
     GO_SPAWN_KEEP_FRONT_GATE_OUTER      = 210406633, // Front Gate 271743 (1873.76, 237.65)
+    // Throne room, opened when Sylvanas takes the champions inside (The Dark Lady).
+    GO_SPAWN_THRONE_ROOM_GATE           = 210406636, // Front Gate 278719 (1667.93, 239.83)
+    GO_SPAWN_COURTYARD_GATE_SOUTH       = 210406715, // Front Gate 279041 (1726.80, 220.09)
+    GO_SPAWN_COURTYARD_GATE_NORTH       = 210406717, // Front Gate 279041 (1726.86, 258.04)
 
     // Blight clouds. The sniffed map has them outside the gates from the start; in the Horde
     // scenario they only appear once Sylvanas has dumped the blight.
@@ -332,6 +336,11 @@ namespace BattleForLordaeron
     Position const SylvanasThroneDoor   = { 1712.56f, 239.19f,  62.10f, 3.14f };       // The Dark Lady
     Position const BaineThroneDoor      = { 1716.50f, 243.50f,  62.10f, 3.14f };
     Position const NathanosThroneDoor   = { 1716.50f, 235.00f,  62.10f, 3.14f };
+    // Inside the throne room (gate at 1667.93, throne at 1628.46 240.08 in the sniff); they wait facing the door.
+    Position const ThroneRoomEntrance   = { 1660.00f, 239.80f,  62.60f, 3.14f };
+    Position const SylvanasThroneRoom   = { 1638.00f, 240.00f,  62.60f, 0.00f };
+    Position const BaineThroneRoom      = { 1645.00f, 246.00f,  62.60f, 0.00f };
+    Position const NathanosThroneRoom   = { 1645.00f, 234.00f,  62.60f, 0.00f };
     Position const OrgrimmarGates       = { 1568.61f, -4398.67f, 16.13f, 0.60f };      // map 1, WorldSafeLocs 6638
 }
 

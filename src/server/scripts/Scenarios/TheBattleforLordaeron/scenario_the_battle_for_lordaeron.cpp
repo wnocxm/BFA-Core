@@ -236,7 +236,6 @@ enum class EscortEnd : uint8
     NathanosRetreatLeg1,
     NathanosRetreatLeg2,
     NathanosAtCourtyard,
-    SylvanasAtThroneDoor,
 };
 
 struct Escort
@@ -366,6 +365,11 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             case GO_SPAWN_KEEP_FRONT_GATE_INNER:
             case GO_SPAWN_KEEP_FRONT_GATE_OUTER:
                 _keepFrontGates.insert(go->GetGUID());
+                break;
+            case GO_SPAWN_THRONE_ROOM_GATE:
+            case GO_SPAWN_COURTYARD_GATE_SOUTH:
+            case GO_SPAWN_COURTYARD_GATE_NORTH:
+                _throneRoomGates.insert(go->GetGUID());
                 break;
             default:
                 break;
@@ -1657,8 +1661,31 @@ private:
             OnEscortEnd(end.first, instance->GetCreature(end.second));
     }
 
+    static bool IsInThroneRoom(Player const* player)
+    {
+        return player->GetPositionX() >= 1595.0f && player->GetPositionX() <= 1664.0f
+            && player->GetPositionY() >= 205.0f && player->GetPositionY() <= 275.0f
+            && player->GetPositionZ() >= 55.0f && player->GetPositionZ() <= 80.0f;
+    }
+
     void UpdateArrivalCredits()
     {
+        // The Dark Lady: done when a player follows Sylvanas into the throne room.
+        if (_throneRoomOpen && !_throneRoomEntered && GetCurrentStepId() == STEP_H_THE_DARK_LADY)
+        {
+            for (auto& ref : instance->GetPlayers())
+            {
+                Player* player = ref.GetSource();
+                if (player && player->IsAlive() && IsInThroneRoom(player))
+                {
+                    _throneRoomEntered = true;
+                    TC_LOG_INFO("scripts", "Battle for Lordaeron: %s entered the throne room", player->GetName().c_str());
+                    DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SYLVANAS);
+                    break;
+                }
+            }
+        }
+
         for (auto itr = _arrivalCredits.begin(); itr != _arrivalCredits.end();)
         {
             Creature* creature = instance->GetCreature(itr->Guid);
@@ -1725,10 +1752,6 @@ private:
             case EscortEnd::NathanosAtCourtyard:
                 if (creature)
                     _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_NATHANOS_SAFETY, creature->GetGUID() });
-                break;
-            case EscortEnd::SylvanasAtThroneDoor:
-                if (creature)
-                    _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_SYLVANAS, creature->GetGUID() });
                 break;
             default:
                 break;
@@ -2176,11 +2199,15 @@ private:
                 _nathanosGuid = nathanos->GetGUID();
 
         StartConversationNear(CONVERSATION_FINALLY_SHOW_UP, sylvanas);
+        // "Champions, with me": the gates open, Sylvanas, Baine and Nathanos walk into the
+        // throne room and wait there; the step is done when a player comes in.
         _scheduler.Schedule(CHAMPIONS_BEAR_WITNESS, [this](TaskContext /*context*/)
         {
-            StartEscort(instance->GetCreature(_sylvanasGuid), { SylvanasThroneDoor }, EscortEnd::SylvanasAtThroneDoor, true);
-            StartEscort(instance->GetCreature(_baineGuid), { BaineThroneDoor }, EscortEnd::None, false);
-            StartEscort(instance->GetCreature(_nathanosGuid), { NathanosThroneDoor }, EscortEnd::None, false);
+            OpenPortcullises(_throneRoomGates, "throne room");
+            _throneRoomOpen = true;
+            StartEscort(instance->GetCreature(_sylvanasGuid), { SylvanasThroneDoor, ThroneRoomEntrance, SylvanasThroneRoom }, EscortEnd::None, true);
+            StartEscort(instance->GetCreature(_baineGuid), { BaineThroneDoor, ThroneRoomEntrance, BaineThroneRoom }, EscortEnd::None, false);
+            StartEscort(instance->GetCreature(_nathanosGuid), { NathanosThroneDoor, ThroneRoomEntrance, NathanosThroneRoom }, EscortEnd::None, false);
         });
     }
 
@@ -2504,6 +2531,9 @@ private:
     std::map<ObjectGuid::LowType, std::pair<uint32, Position>> _sniffedBlight;
     GuidSet _blightClouds;
     bool _fieldBlightSpread = false;
+    GuidSet _throneRoomGates;
+    bool _throneRoomOpen = false;
+    bool _throneRoomEntered = false;
     GuidSet _roadReserves;
     GuidSet _chokepointAllies;
     GuidSet _chokepointEnemies;
