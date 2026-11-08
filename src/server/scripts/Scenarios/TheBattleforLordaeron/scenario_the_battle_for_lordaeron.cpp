@@ -278,6 +278,22 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         return IsHordeScenario() && allianceViewSpawn ? 0 : data->id;
     }
 
+    // Blight clouds on the map wait for Sylvanas' blight (Our Secret Weapon).
+    uint32 GetGameObjectEntry(ObjectGuid::LowType spawnId, uint32 entry) override
+    {
+        if (!spawnId || !IsHordeScenario() || !IsBlightCloud(entry))
+            return entry;
+
+        if (GameObjectData const* data = sObjectMgr->GetGOData(spawnId))
+            _sniffedBlight[spawnId] = { entry, Position(data->posX, data->posY, data->posZ, data->orientation) };
+        return 0;
+    }
+
+    static bool IsBlightCloud(uint32 entry)
+    {
+        return entry == GO_BLIGHT_01 || entry == GO_BLIGHT_02 || entry == GO_BLIGHT_03 || entry == GO_BLIGHT_04 || entry == GO_BLIGHT_01_FIELD;
+    }
+
     void OnPlayerEnter(Player* player) override
     {
         InstanceScript::OnPlayerEnter(player);
@@ -1151,6 +1167,57 @@ private:
                 player->GetSceneMgr().PlayScene(sceneId);
     }
 
+    // ---- Blight ----------------------------------------------------------------------------
+
+    // Ground height from high above: the field outside the gates goes from 60 down to 33.
+    Position FieldGround(float x, float y) const
+    {
+        float z = instance->GetHeight(PhasingHandler::GetEmptyPhaseShift(), x, y, 75.0f, true, 60.0f);
+        return Position(x, y, z > INVALID_HEIGHT ? z : 40.0f, 0.0f);
+    }
+
+    void SummonBlightCloud(Position const& pos)
+    {
+        static uint32 const clouds[] = { GO_BLIGHT_01, GO_BLIGHT_02, GO_BLIGHT_03, GO_BLIGHT_04 };
+        uint32 entry = clouds[_blightClouds.size() % 4];
+        float orientation = frand(0.0f, float(2 * M_PI));
+        if (GameObject* cloud = instance->SummonGameObject(entry, pos, QuaternionData::fromEulerAnglesZYX(orientation, 0.0f, 0.0f), 0))
+            _blightClouds.insert(cloud->GetGUID());
+    }
+
+    // Our Secret Weapon: the blight rains down on the Alliance army outside the gates.
+    void SpreadFieldBlight()
+    {
+        if (_fieldBlightSpread)
+            return;
+        _fieldBlightSpread = true;
+
+        for (auto const& sniffed : _sniffedBlight)
+            if (GameObject* cloud = instance->SummonGameObject(sniffed.second.first, sniffed.second.second,
+                QuaternionData::fromEulerAnglesZYX(sniffed.second.second.GetOrientation(), 0.0f, 0.0f), 0))
+                _blightClouds.insert(cloud->GetGUID());
+
+        for (float x = 1945.0f; x <= 2185.0f; x += 40.0f)
+            for (float y = 200.0f; y <= 290.0f; y += 30.0f)
+                SummonBlightCloud(FieldGround(x + frand(-8.0f, 8.0f), y + frand(-8.0f, 8.0f)));
+
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: the blight covers the field (%u clouds)", uint32(_blightClouds.size()));
+    }
+
+    // Like Wildfire: "Blight throwers, you will create a swath of blight between us and the enemy!"
+    void SpreadChokepointSwath()
+    {
+        for (float x = 1430.0f; x <= 1510.0f; x += 16.0f)
+            SummonBlightCloud(GroundPos(x, 346.0f + frand(-4.0f, 4.0f), 61.7f, 0.0f));
+    }
+
+    // Cry Havoc: Sylvanas plagues the chokepoint and the road behind the retreat.
+    void SpreadBlightAlong(std::vector<Position> const& points)
+    {
+        for (Position const& point : points)
+            SummonBlightCloud(GroundPos(point.GetPositionX(), point.GetPositionY(), point.GetPositionZ(), 0.0f));
+    }
+
     // Leaders talk and walk, they never fight (and never die).
     static void MakeLeader(Creature* creature)
     {
@@ -1635,6 +1702,7 @@ private:
                 // The reserves take position; "Soldiers, fall into position!"
                 SummonChokepointArmy();
                 StartConversationNear(CONVERSATION_BLIGHT_THROWERS, creature);
+                SpreadChokepointSwath();
                 _scheduler.Schedule(BLIGHT_THROWERS_LENGTH, [this](TaskContext /*context*/)
                 {
                     if (Creature* nathanos = instance->GetCreature(_nathanosGuid))
@@ -1645,10 +1713,12 @@ private:
                 });
                 break;
             case EscortEnd::NathanosRetreatLeg1:
+                SpreadBlightAlong(NathanosRetreatLeg1);
                 StartConversationNear(CONVERSATION_KEEP_MOVING, creature);
                 StartEscort(creature, NathanosRetreatLeg2, EscortEnd::NathanosRetreatLeg2, true);
                 break;
             case EscortEnd::NathanosRetreatLeg2:
+                SpreadBlightAlong(NathanosRetreatLeg2);
                 StartConversationNear(CONVERSATION_ALMOST_THERE, creature);
                 StartEscort(creature, NathanosRetreatLeg3, EscortEnd::NathanosAtCourtyard, true);
                 break;
@@ -1835,6 +1905,7 @@ private:
             return;
 
         _blightSceneStage = 2;
+        SpreadFieldBlight();
         if (Creature* trizz = instance->GetCreature(_trizzGuid))
             trizz->Yell(BROADCAST_TEXT_TRIZZ_GAS_MASKS);
         StartConversationNear(CONVERSATION_WOUNDED_ON_THE_FIELD, GetSaurfang());
@@ -2051,6 +2122,9 @@ private:
         _scheduler.Schedule(4s, [this](TaskContext /*context*/)
         {
             PlaySceneForPlayers(SCENE_SYLVANAS_BLOCKS_ALLIANCE);
+            for (float x = 1440.0f; x <= 1500.0f; x += 20.0f)
+                for (float y = 250.0f; y <= 330.0f; y += 20.0f)
+                    SummonBlightCloud(GroundPos(x + frand(-5.0f, 5.0f), y + frand(-5.0f, 5.0f), 61.7f, 0.0f));
             for (ObjectGuid const& guid : _allianceLeaders)
                 if (Creature* leader = instance->GetCreature(guid))
                     if (leader->GetEntry() == NPC_JAINA)
@@ -2243,6 +2317,7 @@ private:
 
         if (number >= 9)
         {
+            SpreadFieldBlight();
             // From Like Wildfire on, Saurfang is gone (he shows up again for The Dark Lady).
             if (Creature* saurfang = GetSaurfang())
                 saurfang->DespawnOrUnsummon();
@@ -2426,6 +2501,9 @@ private:
     std::map<ObjectGuid, Position> _armyPost;      // where a soldier holds
     std::map<ObjectGuid, ObjectGuid> _armyTarget;  // the opponent it fights
     GuidSet _rescuedWounded;
+    std::map<ObjectGuid::LowType, std::pair<uint32, Position>> _sniffedBlight;
+    GuidSet _blightClouds;
+    bool _fieldBlightSpread = false;
     GuidSet _roadReserves;
     GuidSet _chokepointAllies;
     GuidSet _chokepointEnemies;

@@ -180,6 +180,14 @@ enum BattleForLordaeronGameObjects
     GO_SPAWN_HEART_PORTCULLIS_2         = 210406654, // Portcullis 280729 (1563.16, 204.13)
     GO_SPAWN_KEEP_FRONT_GATE_INNER      = 210406716, // Front Gate 271743 (1849.43, 237.98)
     GO_SPAWN_KEEP_FRONT_GATE_OUTER      = 210406633, // Front Gate 271743 (1873.76, 237.65)
+
+    // Blight clouds. The sniffed map has them outside the gates from the start; in the Horde
+    // scenario they only appear once Sylvanas has dumped the blight.
+    GO_BLIGHT_01                        = 281723,
+    GO_BLIGHT_02                        = 281724,
+    GO_BLIGHT_03                        = 281725,
+    GO_BLIGHT_04                        = 281726,
+    GO_BLIGHT_01_FIELD                  = 281727,
 };
 
 // Undercity citizens in the heart of the city (custom ids, texts are BroadcastText 141822-141825).
