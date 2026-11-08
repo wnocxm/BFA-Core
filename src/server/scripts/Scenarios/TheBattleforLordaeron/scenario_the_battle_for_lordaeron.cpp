@@ -578,6 +578,8 @@ private:
         {
             OpenPortcullises(_keepFrontGates, "keep front");
             DoSendScenarioEvent(SCENARIO_EVENT_H_FOLLOW_SAURFANG_BATTLE);
+            _followSaurfangToBattleDone = true;
+            TryCompleteToBattle();
             StartSaurfangRoute(RouteToFrontLine, SaurfangRouteEnd::FrontLine);
         });
     }
@@ -870,6 +872,28 @@ private:
             return;
         player->UpdateCriteria(CRITERIA_TYPE_SEND_EVENT, GAME_EVENT_H_USE_PORTAL);
         TC_LOG_INFO("scripts", "Battle for Lordaeron: %s used the portal to the keep", player->GetName().c_str());
+        TryCompleteToBattle();
+    }
+
+    // To Battle! needs "Use the Portal" (CRITERIA_TYPE_SEND_EVENT) and "Follow Saurfang to battle".
+    // CriteriaHandler::IsCompletedCriteria has no case for CRITERIA_TYPE_SEND_EVENT, so the
+    // core never sees the step as done: it is completed here, the way the core would do it.
+    void TryCompleteToBattle()
+    {
+        if (_portalUsers.empty() || !_followSaurfangToBattleDone)
+            return;
+
+        InstanceScenario* scenario = instance->GetInstanceScenario();
+        if (!scenario)
+            return;
+
+        ScenarioStepEntry const* step = scenario->GetStep();
+        if (!step || step->ID != STEP_H_TO_BATTLE)
+            return;
+
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: To Battle! completed");
+        scenario->SetStepState(step, SCENARIO_STEP_DONE);
+        scenario->CompleteStep(step);
     }
 
     void OpenPortcullises(GuidSet const& portcullises, char const* name)
@@ -964,6 +988,7 @@ private:
     GuidSet _heartPortcullises;
     GuidSet _keepFrontGates;
     GuidSet _portalUsers;
+    bool _followSaurfangToBattleDone = false;
     std::vector<Position> _gateRoute;
     std::vector<Position> _heartRoute;
     float _gateFacing = 0.0f;
