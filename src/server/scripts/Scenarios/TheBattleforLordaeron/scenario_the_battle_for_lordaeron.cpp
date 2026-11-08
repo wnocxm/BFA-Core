@@ -39,6 +39,7 @@
 #include "SpellScript.h"
 #include "TaskScheduler.h"
 #include "TemporarySummon.h"
+#include "WaypointManager.h"
 #include "WorldSession.h"
 #include <limits>
 #include <map>
@@ -1599,6 +1600,23 @@ private:
 
     // ---- Escorts -------------------------------------------------------------------------
 
+    // A route set in game (waypoint_data, .wp add / .wp reload) wins over the one written here.
+    std::vector<Position> Route(uint32 pathId, std::vector<Position> const& fallback) const
+    {
+        WaypointPath const* path = sWaypointMgr->GetPath(pathId);
+        if (!path || path->empty())
+            return fallback;
+
+        std::vector<WaypointData const*> nodes(path->begin(), path->end());
+        std::sort(nodes.begin(), nodes.end(), [](WaypointData const* a, WaypointData const* b) { return a->id < b->id; });
+
+        std::vector<Position> points;
+        for (WaypointData const* node : nodes)
+            points.emplace_back(node->x, node->y, node->z, node->orientation);
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: route %u from waypoint_data (%u points)", pathId, uint32(points.size()));
+        return points;
+    }
+
     void StartEscort(Creature* creature, std::vector<Position> const& points, EscortEnd end, bool waitForPlayers)
     {
         if (!creature)
@@ -1710,7 +1728,7 @@ private:
                 StartConversationNear(CONVERSATION_NATHANOS_BAINE, creature);
                 _scheduler.Schedule(CHAMPIONS_WITH_ME, [this](TaskContext /*context*/)
                 {
-                    StartEscort(instance->GetCreature(_nathanosGuid), NathanosRouteToFlank, EscortEnd::NathanosAtFlank, true);
+                    StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_LORTHEMAR, NathanosRouteToFlank), EscortEnd::NathanosAtFlank, true);
                     StartEscort(instance->GetCreature(_baineGuid), { BaineCourtyard }, EscortEnd::None, false);
                     if (!instance->GetCreature(_lorthemarGuid))
                         if (Creature* lorthemar = SummonLeader(NPC_LORTHEMAR, LorthemarFlank))
@@ -1721,8 +1739,8 @@ private:
                 StartConversationNear(CONVERSATION_NATHANOS_LORTHEMAR, creature);
                 _scheduler.Schedule(WITH_PLEASURE, [this](TaskContext /*context*/)
                 {
-                    StartEscort(instance->GetCreature(_lorthemarGuid), { LorthemarChokepoint }, EscortEnd::None, false);
-                    StartEscort(instance->GetCreature(_nathanosGuid), NathanosRouteToChokepoint, EscortEnd::NathanosAtChokepoint, true);
+                    StartEscort(instance->GetCreature(_lorthemarGuid), Route(PATH_LORTHEMAR_TO_CHOKEPOINT, { LorthemarChokepoint }), EscortEnd::None, false);
+                    StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_CHOKEPOINT, NathanosRouteToChokepoint), EscortEnd::NathanosAtChokepoint, true);
                 });
                 break;
             case EscortEnd::NathanosAtChokepoint:
@@ -1740,14 +1758,14 @@ private:
                 });
                 break;
             case EscortEnd::NathanosRetreatLeg1:
-                SpreadBlightAlong(NathanosRetreatLeg1);
+                SpreadBlightAlong(Route(PATH_NATHANOS_RETREAT_1, NathanosRetreatLeg1));
                 StartConversationNear(CONVERSATION_KEEP_MOVING, creature);
-                StartEscort(creature, NathanosRetreatLeg2, EscortEnd::NathanosRetreatLeg2, true);
+                StartEscort(creature, Route(PATH_NATHANOS_RETREAT_2, NathanosRetreatLeg2), EscortEnd::NathanosRetreatLeg2, true);
                 break;
             case EscortEnd::NathanosRetreatLeg2:
-                SpreadBlightAlong(NathanosRetreatLeg2);
+                SpreadBlightAlong(Route(PATH_NATHANOS_RETREAT_2, NathanosRetreatLeg2));
                 StartConversationNear(CONVERSATION_ALMOST_THERE, creature);
-                StartEscort(creature, NathanosRetreatLeg3, EscortEnd::NathanosAtCourtyard, true);
+                StartEscort(creature, Route(PATH_NATHANOS_RETREAT_3, NathanosRetreatLeg3), EscortEnd::NathanosAtCourtyard, true);
                 break;
             case EscortEnd::NathanosAtCourtyard:
                 if (creature)
@@ -1998,7 +2016,7 @@ private:
         StartConversationNear(CONVERSATION_CUT_THEM_OFF, sylvanas);
         _scheduler.Schedule(HEROES_FOLLOW_ME, [this](TaskContext /*context*/)
         {
-            StartEscort(instance->GetCreature(_nathanosGuid), NathanosRouteToSide, EscortEnd::NathanosAtSide, false);
+            StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_SIDE, NathanosRouteToSide), EscortEnd::NathanosAtSide, false);
             StartEscort(instance->GetCreature(_baineGuid), { BaineSide }, EscortEnd::None, false);
         });
     }
@@ -2161,7 +2179,7 @@ private:
             DespawnAll(_allianceLeaders);
             DespawnAll(_chokepointAllies);
             StartConversationNear(CONVERSATION_FOLLOW_NATHANOS, instance->GetCreature(sylvanasGuid));
-            StartEscort(instance->GetCreature(_nathanosGuid), NathanosRetreatLeg1, EscortEnd::NathanosRetreatLeg1, true);
+            StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_RETREAT_1, NathanosRetreatLeg1), EscortEnd::NathanosRetreatLeg1, true);
             if (Creature* lorthemar = instance->GetCreature(_lorthemarGuid))
                 lorthemar->DespawnOrUnsummon(3s);
         });
@@ -2205,9 +2223,9 @@ private:
         {
             OpenPortcullises(_throneRoomGates, "throne room");
             _throneRoomOpen = true;
-            StartEscort(instance->GetCreature(_sylvanasGuid), { SylvanasThroneDoor, ThroneRoomEntrance, SylvanasThroneRoom }, EscortEnd::None, true);
-            StartEscort(instance->GetCreature(_baineGuid), { BaineThroneDoor, ThroneRoomEntrance, BaineThroneRoom }, EscortEnd::None, false);
-            StartEscort(instance->GetCreature(_nathanosGuid), { NathanosThroneDoor, ThroneRoomEntrance, NathanosThroneRoom }, EscortEnd::None, false);
+            StartEscort(instance->GetCreature(_sylvanasGuid), Route(PATH_SYLVANAS_TO_THRONE_ROOM, { SylvanasThroneDoor, ThroneRoomEntrance, SylvanasThroneRoom }), EscortEnd::None, true);
+            StartEscort(instance->GetCreature(_baineGuid), Route(PATH_BAINE_TO_THRONE_ROOM, { BaineThroneDoor, ThroneRoomEntrance, BaineThroneRoom }), EscortEnd::None, false);
+            StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_THRONE_ROOM, { NathanosThroneDoor, ThroneRoomEntrance, NathanosThroneRoom }), EscortEnd::None, false);
         });
     }
 

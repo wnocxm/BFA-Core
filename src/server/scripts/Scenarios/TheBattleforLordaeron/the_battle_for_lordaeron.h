@@ -295,6 +295,22 @@ enum BattleForLordaeronData
     DATA_WOUNDED_RESCUED                = 9, // SetGuidData: wounded soldier bandaged by a player
 };
 
+// Routes that can be set in game: waypoint_data paths (.wp add <id>, then .wp reload <id>).
+// A path that has no points uses the route written in the script.
+enum BattleForLordaeronPaths
+{
+    PATH_NATHANOS_TO_SIDE               = 1760901, // Like Wildfire: courtyard -> where he talks to Baine
+    PATH_NATHANOS_TO_LORTHEMAR          = 1760902, // -> Lor'themar on the road south of the keep
+    PATH_NATHANOS_TO_CHOKEPOINT         = 1760903, // -> the chokepoint west of the keep
+    PATH_NATHANOS_RETREAT_1             = 1760904, // Cry Havoc: chokepoint -> "Keep moving!"
+    PATH_NATHANOS_RETREAT_2             = 1760905, // -> "We're almost there!"
+    PATH_NATHANOS_RETREAT_3             = 1760906, // -> courtyard
+    PATH_LORTHEMAR_TO_CHOKEPOINT        = 1760907,
+    PATH_SYLVANAS_TO_THRONE_ROOM        = 1760908, // The Dark Lady
+    PATH_BAINE_TO_THRONE_ROOM           = 1760909,
+    PATH_NATHANOS_TO_THRONE_ROOM        = 1760910,
+};
+
 namespace BattleForLordaeron
 {
     // Map 1760 shares map 0 coordinates; Undercity positions come from map 0 spawns,
