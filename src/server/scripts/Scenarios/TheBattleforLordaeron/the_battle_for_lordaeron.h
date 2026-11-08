@@ -196,6 +196,7 @@ enum BattleForLordaeronSummonGroups
 enum BattleForLordaeronData
 {
     DATA_EVACUATE_CITIZEN               = 4, // SetGuidData: citizen told to get to the mage portal
+    DATA_JUMP_TO_STEP                   = 5, // SetData: test command .lordaeron step <2-5>
     DATA_PLAYER_USED_KEEP_PORTAL        = 3, // SetGuidData: player that used the portal
 };
 

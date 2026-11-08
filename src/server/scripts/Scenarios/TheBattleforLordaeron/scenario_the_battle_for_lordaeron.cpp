@@ -30,6 +30,8 @@
 #include "ObjectMgr.h"
 #include "PhasingHandler.h"
 #include "Player.h"
+#include "Chat.h"
+#include "RBAC.h"
 #include "ScriptedGossip.h"
 #include "ScriptMgr.h"
 #include "TaskScheduler.h"
@@ -240,6 +242,12 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             BuildHeartGateRoutes();
             StartSaurfangRoute(_gateRoute, SaurfangRouteEnd::Gate);
         }
+    }
+
+    void SetData(uint32 type, uint32 data) override
+    {
+        if (type == DATA_JUMP_TO_STEP)
+            JumpToStep(data);
     }
 
     void SetGuidData(uint32 type, ObjectGuid data) override
@@ -910,6 +918,96 @@ private:
         TC_LOG_INFO("scripts", "Battle for Lordaeron: %u %s portcullis opened", opened, name);
     }
 
+    // ---- Test helper: .lordaeron step <2-5> -----------------------------------------
+    // Skips forward to a step: what the earlier steps leave behind is set up (gates open,
+    // their NPCs gone), Saurfang and the players are put where the step starts and the step
+    // then starts as usual (OnStepChanged on the next tick).
+    Position GroundPos(float x, float y, float z, float o) const
+    {
+        float ground = instance->GetHeight(PhasingHandler::GetEmptyPhaseShift(), x, y, z + 2.0f, true, 10.0f);
+        return Position(x, y, ground > INVALID_HEIGHT ? ground : z, o);
+    }
+
+    void JumpToStep(uint32 number)
+    {
+        static uint32 const stepIds[] = { STEP_H_UNDER_SIEGE, STEP_H_SPIES_IN_OUR_MIDST, STEP_H_TO_THE_HEART, STEP_H_EVACUATE_HEART, STEP_H_TO_BATTLE };
+        if (number < 2 || number > 5)
+            return;
+
+        InstanceScenario* scenario = instance->GetInstanceScenario();
+        ScenarioStepEntry const* target = sScenarioStepStore.LookupEntry(stepIds[number - 1]);
+        ScenarioStepEntry const* current = scenario ? scenario->GetStep() : nullptr;
+        if (!target || !current || current->OrderIndex >= target->OrderIndex)
+        {
+            TC_LOG_ERROR("scripts", "Battle for Lordaeron: cannot jump to step %u (only forward)", number);
+            return;
+        }
+
+        _briefingStarted = true;
+        OpenPortcullises(_magicQuarterPortcullises, "Magic Quarter");
+        if (number >= 3)
+        {
+            DespawnAll(_spies);
+            DespawnAll(_captives);
+            OpenPortcullises(_canalPortcullises, "canal");
+        }
+        if (number >= 4)
+        {
+            DespawnAll(_ambush);
+            DespawnAll(_druids);
+            OpenPortcullises(_heartPortcullises, "heart");
+        }
+        if (number >= 5)
+        {
+            DespawnAll(_heartEnemies);
+            DespawnAll(_heartCitizens);
+        }
+
+        Position saurfangPos;
+        Position playerPos;
+        switch (number)
+        {
+            case 2:
+                saurfangPos = SaurfangMagicQuarter;
+                playerPos = GroundPos(1706.0f, 60.0f, -62.29f, 0.0f);
+                break;
+            case 3:
+                saurfangPos = GroundPos(1692.334473f, 141.002945f, -55.214329f, 3.14f);
+                playerPos = GroundPos(1696.0f, 141.0f, -55.21f, 3.14f);
+                break;
+            case 4: // in front of the heart gate, on the canal side
+                saurfangPos = GroundPos(1556.3f, 201.5f, -60.75f, 0.77f);
+                playerPos = GroundPos(1552.5f, 198.0f, -60.75f, 0.77f);
+                break;
+            default:
+                saurfangPos = SaurfangHeart;
+                playerPos = GroundPos(1592.0f, 228.0f, -62.08f, 2.4f);
+                break;
+        }
+
+        _saurfangMode = SaurfangMode::Idle;
+        if (Creature* saurfang = GetSaurfang())
+        {
+            saurfang->CombatStop(true);
+            saurfang->GetMotionMaster()->Clear();
+            saurfang->NearTeleportTo(saurfangPos);
+            saurfang->SetHomePosition(saurfangPos);
+        }
+        else
+            SummonSaurfang(saurfangPos);
+
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                player->NearTeleportTo(playerPos);
+
+        for (ScenarioStepEntry const* step : sScenarioStepStore)
+            if (step->ScenarioID == target->ScenarioID && !step->IsBonusObjective() && step->OrderIndex < target->OrderIndex)
+                scenario->SetStepState(step, SCENARIO_STEP_DONE);
+        scenario->SetStep(target);
+
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: jumped to step %u (%u)", number, target->ID);
+    }
+
     // Under Siege: Saurfang briefs the players; when he is done the portcullis to the
     // canals opens and the step is reported.
     void StartBriefing(Creature* saurfang)
@@ -1038,8 +1136,52 @@ public:
     }
 };
 
+// .lordaeron step <2-5>: test command, skips forward to a step of the Horde scenario.
+// 2 Spies in Our Midst, 3 To the Heart!, 4 Evacuate the Heart of the City, 5 To Battle!
+class lordaeron_commandscript : public CommandScript
+{
+public:
+    lordaeron_commandscript() : CommandScript("lordaeron_commandscript") { }
+
+    std::vector<ChatCommand> GetCommands() const override
+    {
+        static std::vector<ChatCommand> lordaeronCommandTable =
+        {
+            { "step", rbac::RBAC_PERM_COMMAND_DEBUG, false, &HandleStepCommand, "" },
+        };
+        static std::vector<ChatCommand> commandTable =
+        {
+            { "lordaeron", rbac::RBAC_PERM_COMMAND_DEBUG, false, nullptr, "", lordaeronCommandTable },
+        };
+        return commandTable;
+    }
+
+    static bool HandleStepCommand(ChatHandler* handler, char const* args)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        uint32 number = (args && *args) ? uint32(atoi(args)) : 0;
+        if (number < 2 || number > 5)
+        {
+            handler->SendSysMessage("Usage: .lordaeron step <2-5>  (2 Spies, 3 To the Heart, 4 Evacuate, 5 To Battle)");
+            return true;
+        }
+
+        InstanceScript* instance = player->GetInstanceScript();
+        if (player->GetMapId() != MAP_LORDAERON_SCENARIO || !instance)
+        {
+            handler->SendSysMessage("You are not in the Battle for Lordaeron scenario.");
+            return true;
+        }
+
+        instance->SetData(DATA_JUMP_TO_STEP, number);
+        handler->PSendSysMessage("Battle for Lordaeron: jumping to step %u (forward only).", number);
+        return true;
+    }
+};
+
 void AddSC_scenario_the_battle_for_lordaeron()
 {
+    new lordaeron_commandscript();
     new npc_lordaeron_undercity_citizen();
     RegisterInstanceScript(scenario_the_battle_for_lordaeron, MAP_LORDAERON_SCENARIO);
 }
