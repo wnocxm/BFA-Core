@@ -94,3 +94,24 @@ Anduin 133249, Genn 133250, Jaina 133251, Alleria 136392, Mekkatorque 133410.
 The 893 creature spawns on map 1760 in the world DB are the Alliance scenario's point of view
 (build 27219). Both scenarios show the same battle, so the Horde scenario can reuse the layout by
 swapping entries per team in `InstanceScript::GetCreatureEntry`.
+
+## Steps 6-13 (scripted)
+
+All of them are CRITERIA_TYPE_SEND_EVENT_SCENARIO, sent by the instance script. The step
+after The Dark Lady (3790) has no criteria; the script completes it after the last step.
+
+| # | Step | Script |
+|---|---|---|
+| 6 | Push Them Back (100) | Groups 11/12 (front line) and 18 (walls). Kills a player took part in send 62175 (weight 2) |
+| 7 | Defend the Azerite War Machine | Scene 3022, conversation 5500, War Machine 132693 at (1998, 243). Waves: Emery 144382 (8690, then Sylvanas 9675), Lyara 140129 (8694), Cogspark 139491 (8691). Each wave 62289, then 62350 |
+| 8 | Our Secret Weapon (250) | Scenes 3025 (AWM) and 3026 (SDB), conversation 8164. Trizz 125516 at (1905.75, 233.12): gas mask 271541 / blight canister 261723. Kills send 62177 and 59597, Blight Spray 261748 hits send 59597 |
+| 9 | Like Wildfire | Movie 856 (Turn the Tide), courtyard. Conversations 7736, 7760 (Baine), 7762 (Lor'themar), 7759; Nathanos leads to (1449.2, 258.6), "Soldiers, fall into position!" (153660), 62178 |
+| 10 | Holding Them Back | Anduin 133249, Jaina 133251, Genn 133250 north of the chokepoint; conversation 5926; void tear: Alleria 136392, Mekkatorque 133410, group 17; 62202 |
+| 11 | The King Piece (150) | Conversation 7659, the Alliance (groups 16/17) charges the reserves (group 15). Weights: soldiers 1 (62482), Ren'dorei and mages 3 (62483), Flametrons 10 (64503). Lor'themar's 8166 at 75 |
+| 12 | Cry Havoc | Baine "RETREAT!" (148208), scene 1845 (SBA), Jaina 148209, conversation 7928; Nathanos back to (1780.9, 238.3) with 8159/8160; 62203 |
+| 13 | The Dark Lady | Saurfang walks to Sylvanas, conversation 6787, Sylvanas leads to (1712.6, 239.2); 62204 |
+| - | Finale | Movie 855 (Throne Room - Horde), kill credit 139094 (quest objective), teleport to Orgrimmar (WorldSafeLocs 6638) |
+
+Scenes: scene_template 3022/3025/3026/1845 use SceneScriptPackage 2009 "Azerite Machine Arrives",
+2028 "[AWM] Azerite War Machine", 2032 "[SDB] Sylvanas Dumps Blight", 2031 "[SBA] Sylvanas Blocks
+Alliance (Exploding Cisterns)". Movies 855/856 from Movie.db2 (wiki MovieID list).

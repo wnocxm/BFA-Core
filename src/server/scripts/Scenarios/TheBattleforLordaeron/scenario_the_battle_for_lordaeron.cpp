@@ -21,6 +21,7 @@
 #include "DB2Stores.h"
 #include "DBCEnums.h"
 #include "GameObject.h"
+#include "GameTime.h"
 #include "InstanceScenario.h"
 #include "Log.h"
 #include "Map.h"
@@ -32,11 +33,15 @@
 #include "Player.h"
 #include "Chat.h"
 #include "RBAC.h"
+#include "SceneMgr.h"
 #include "ScriptedGossip.h"
 #include "ScriptMgr.h"
+#include "SpellScript.h"
 #include "TaskScheduler.h"
 #include "TemporarySummon.h"
 #include "WorldSession.h"
+#include <map>
+#include <unordered_set>
 
 using namespace BattleForLordaeron;
 
@@ -68,6 +73,57 @@ namespace
     constexpr Milliseconds GATE_OPEN_IN_ORDER    = 2s;  // "...Open the gate!" ends this long into the line
     constexpr float GATE_FRONT_DISTANCE         = 5.0f; // where he stops, in front of the portcullis
     constexpr float GATE_INSIDE_DISTANCE        = 6.0f;
+
+    // ---- Steps 6-13 ----
+    constexpr uint32 FACTION_SCENARIO_ALLY      = 2501;
+    constexpr float ARMY_ENGAGE_RANGE           = 20.0f;
+    constexpr float ARMY_LEASH_RANGE            = 45.0f;
+    constexpr float ESCORT_POINT_REACHED        = 3.0f;
+    constexpr float ESCORT_WAIT_RANGE           = 35.0f;  // leaders wait for the players
+    constexpr float ARRIVAL_CREDIT_RANGE        = 30.0f;
+    constexpr size_t MIN_FRONT_ENEMIES_LEFT     = 25;
+    constexpr size_t MIN_FIELD_ENEMIES_LEFT     = 25;
+    constexpr size_t MIN_CHOKEPOINT_ENEMIES_LEFT = 15;
+    constexpr Milliseconds WAR_MACHINE_ARRIVES_LENGTH = 24513ms; // CONVERSATION_WAR_MACHINE_ARRIVES
+    constexpr Milliseconds NEXT_WAVE_DELAY      = 8s;
+    constexpr Milliseconds WAVE_GIVE_UP_DELAY   = 150s;  // a wave with a member stuck out of reach still counts
+    constexpr Milliseconds SCENE_FALLBACK       = 60s;   // in case no player reports the end of a scene
+    constexpr Milliseconds MOVIE_FALLBACK       = 200s;
+    constexpr Milliseconds HEROES_FOLLOW_ME     = 29294ms; // CONVERSATION_CUT_THEM_OFF "Heroes, follow me!"
+    constexpr Milliseconds CHAMPIONS_WITH_ME    = 51479ms; // CONVERSATION_NATHANOS_BAINE "Champions, with me!"
+    constexpr Milliseconds WITH_PLEASURE        = 5762ms;  // CONVERSATION_NATHANOS_LORTHEMAR
+    constexpr Milliseconds BLIGHT_THROWERS_LENGTH = 9348ms;
+    constexpr Milliseconds HOLD_YOUR_GROUND     = 24889ms; // CONVERSATION_OUTNUMBERED "ALLIANCE, HOLD YOUR GROUND!"
+    constexpr Milliseconds OUTNUMBERED_LENGTH   = 28828ms;
+    constexpr Milliseconds CHAMPIONS_BEAR_WITNESS = 64649ms; // CONVERSATION_FINALLY_SHOW_UP last line
+    constexpr uint32 KING_PIECE_HALFWAY         = 75;      // of 150: Lor'themar's "Their assault will soon falter"
+
+    std::vector<Position> const NathanosRouteToSide = { { 1804.60f, 180.64f, 61.0f, 0.0f } };
+    std::vector<Position> const NathanosRouteToFlank =
+    {
+        { 1792.30f, 142.40f, 61.0f, 0.0f },
+        { 1741.90f, 122.10f, 61.0f, 0.0f },
+        { 1603.50f, 130.90f, 61.0f, 0.0f },
+    };
+    std::vector<Position> const NathanosRouteToChokepoint = { { 1449.20f, 258.60f, 61.7f, 0.0f } };
+    std::vector<Position> const NathanosRetreatLeg1 = { { 1558.42f, 123.92f, 61.0f, 0.0f }, { 1741.90f, 122.10f, 61.0f, 0.0f } };
+    std::vector<Position> const NathanosRetreatLeg2 = { { 1806.80f, 158.20f, 61.0f, 0.0f } };
+    std::vector<Position> const NathanosRetreatLeg3 = { { 1780.90f, 238.30f, 61.0f, 0.0f } };
+
+    // Static spawns that only belong to the Alliance scenario's view of the battle (any guid):
+    // the Horde scenario summons its own. Only spawns on the surface (z > 0) are affected,
+    // so nothing in the Undercity changes.
+    std::unordered_set<uint32> const AllianceViewEntries =
+    {
+        124856, 125196, 124979, 125231, 124565, 124324, 124480, 126778, 125622, 124855, 133948, 124982, 125316, 138714,
+        128398, 125097, 126513, 128374, 124984, 137174, 125140, 126605, 125126, 126780, 134111, 124281, 126614, 138806,
+        124985, 136612, 124282, 125221, 138804, 138691, 144022, 125134, 126613, 125839, 124292, 138807, 127147, 130372,
+        129017, 124674, 126786, 124657, 138720, 97275, 144144, 137107, 144500, 125357, 126309, 138805, 133517, 128953,
+        138454, 136146, 125496, 126777, 136611, 125124, 124651, 138455, 125515, 125138, 124787, 124792, 124981, 133949,
+        134015, 124297, 134142, 140128, 132079, 124299, 136394, 137939, 129043, 126795, 129179, 134016, 124980,
+        // Horde scenario leaders, summoned by the script
+        130365, 130367, 133240, 133243, 137109, 133249, 133250, 133251, 136392, 133410, 125516, 132693,
+    };
 
     // Saurfang's routes. Short legs: each one is walked with pathfinding, or in a straight
     // line if no path is found. Dugi guide points (1653.6, 117.9) and (1597.0, 106.2).
@@ -118,6 +174,7 @@ enum class SaurfangMode : uint8
     Idle,
     FirstFight, // Spies in Our Midst: one fight, then to the watch point
     Route,
+    Hold,       // steps 6-7: stays where he is and fights whoever comes close
 };
 
 enum class SaurfangRouteEnd : uint8
@@ -127,6 +184,38 @@ enum class SaurfangRouteEnd : uint8
     Gate,
     Heart,
     FrontLine,
+    PushLine,
+    WarMachine,
+};
+
+// Steps 6-13: someone walking a route set by the script (Nathanos, Lor'themar, Baine, Sylvanas).
+enum class EscortEnd : uint8
+{
+    None,
+    NathanosAtSide,
+    NathanosAtFlank,
+    NathanosAtChokepoint,
+    NathanosRetreatLeg1,
+    NathanosRetreatLeg2,
+    NathanosAtCourtyard,
+    SaurfangAtSylvanas,
+    SylvanasAtThroneDoor,
+};
+
+struct Escort
+{
+    ObjectGuid Guid;
+    std::vector<Position> Points;
+    size_t Index = 0;
+    EscortEnd End = EscortEnd::None;
+    bool WaitForPlayers = false;
+};
+
+// A step event sent once a player is near someone (e.g. "Follow Nathanos to the keep").
+struct ArrivalCredit
+{
+    uint32 EventId;
+    ObjectGuid Guid;
 };
 
 struct scenario_the_battle_for_lordaeron : public InstanceScript
@@ -139,6 +228,8 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
     uint32 GetCreatureEntry(ObjectGuid::LowType spawnId, CreatureData const* data) override
     {
         bool allianceViewSpawn = spawnId >= FIRST_ALLIANCE_VIEW_SPAWN && spawnId <= LAST_ALLIANCE_VIEW_SPAWN;
+        if (IsHordeScenario() && !allianceViewSpawn && data->posZ > 0.0f && AllianceViewEntries.count(data->id))
+            allianceViewSpawn = true;
         return IsHordeScenario() && allianceViewSpawn ? 0 : data->id;
     }
 
@@ -242,12 +333,30 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
             BuildHeartGateRoutes();
             StartSaurfangRoute(_gateRoute, SaurfangRouteEnd::Gate);
         }
+        else
+            OnArmyUnitDeath(creature);
     }
 
     void SetData(uint32 type, uint32 data) override
     {
-        if (type == DATA_JUMP_TO_STEP)
-            JumpToStep(data);
+        switch (type)
+        {
+            case DATA_JUMP_TO_STEP:
+                JumpToStep(data);
+                break;
+            case DATA_MOVIE_COMPLETE:
+                if (data == MOVIE_TURN_THE_TIDE)
+                    BeginLikeWildfire();
+                break;
+            case DATA_SCENE_COMPLETE:
+                if (data == SCENE_WAR_MACHINE_DESTROYED)
+                    OnWarMachineSceneDone();
+                else if (data == SCENE_SYLVANAS_DUMPS_BLIGHT)
+                    OnBlightSceneDone();
+                break;
+            default:
+                break;
+        }
     }
 
     void SetGuidData(uint32 type, ObjectGuid data) override
@@ -256,6 +365,14 @@ struct scenario_the_battle_for_lordaeron : public InstanceScript
         {
             if (Creature* citizen = instance->GetCreature(data))
                 EvacuateCitizen(citizen);
+            return;
+        }
+
+        if (type == DATA_BLIGHT_SPRAY_HIT)
+        {
+            // Each Alliance soldier caught in the blight counts once.
+            if (GetCurrentStepId() == STEP_H_OUR_SECRET_WEAPON && _armyEnemies.count(data) && _blightedEnemies.insert(data).second)
+                DoSendScenarioEvent(SCENARIO_EVENT_H_BLIGHT_USED);
             return;
         }
 
@@ -697,6 +814,10 @@ private:
             case SaurfangRouteEnd::Ambush:
                 OnSaurfangReachedAmbush();
                 break;
+            case SaurfangRouteEnd::PushLine:
+            case SaurfangRouteEnd::WarMachine:
+                _saurfangMode = SaurfangMode::Hold;
+                break;
             case SaurfangRouteEnd::Gate:
                 // He stops in front of the portcullis, waits a moment, orders it open and
                 // it opens as he says so.
@@ -720,7 +841,7 @@ private:
     Creature* NearestEnemyOf(Creature* saurfang) const
     {
         Creature* nearest = nullptr;
-        for (GuidSet const* enemies : { &_spies, &_druids, &_heartEnemies })
+        for (GuidSet const* enemies : { &_spies, &_druids, &_heartEnemies, &_armyEnemies })
             for (ObjectGuid const& guid : *enemies)
                 if (Creature* enemy = instance->GetCreature(guid))
                     if (enemy->IsAlive() && saurfang->IsWithinDist(enemy, SAURFANG_ENGAGE_RANGE)
@@ -750,6 +871,33 @@ private:
                 break;
             case STEP_H_TO_BATTLE:
                 StartToBattle();
+                break;
+            case STEP_H_PUSH_THEM_BACK:
+                StartPushThemBack();
+                break;
+            case STEP_H_DEFEND_WAR_MACHINE:
+                StartDefendWarMachine();
+                break;
+            case STEP_H_OUR_SECRET_WEAPON:
+                StartOurSecretWeapon();
+                break;
+            case STEP_H_LIKE_WILDFIRE:
+                StartLikeWildfire();
+                break;
+            case STEP_H_HOLDING_THEM_BACK:
+                StartHoldingThemBack();
+                break;
+            case STEP_H_THE_KING_PIECE:
+                StartTheKingPiece();
+                break;
+            case STEP_H_CRY_HAVOC:
+                StartCryHavoc();
+                break;
+            case STEP_H_THE_DARK_LADY:
+                StartTheDarkLady();
+                break;
+            case STEP_H_FINALE:
+                StartFinale();
                 break;
             default:
                 break;
@@ -834,6 +982,9 @@ private:
 
         CheckReinforcements(stepId);
         UpdateSaurfang();
+        UpdateArmies(stepId);
+        UpdateEscorts();
+        UpdateArrivalCredits();
 
         for (auto& ref : instance->GetPlayers())
         {
@@ -904,6 +1055,884 @@ private:
         scenario->CompleteStep(step);
     }
 
+    // =====================================================================================
+    // Steps 6-13: the battle on the surface
+    // =====================================================================================
+
+    // ---- Helpers -------------------------------------------------------------------------
+
+    std::vector<Position> SnapRoute(std::vector<Position> const& points) const
+    {
+        std::vector<Position> snapped;
+        for (Position const& point : points)
+            snapped.push_back(GroundPos(point.GetPositionX(), point.GetPositionY(), point.GetPositionZ(), point.GetOrientation()));
+        return snapped;
+    }
+
+    Player* AnyPlayer() const
+    {
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                return player;
+        return nullptr;
+    }
+
+    bool IsPlayerNear(WorldObject const* object, float range) const
+    {
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                if (player->IsAlive() && player->IsWithinDist(object, range))
+                    return true;
+        return false;
+    }
+
+    // Conversations of steps 6-13 use actor templates, so any creator near the players works.
+    void StartConversationNear(uint32 conversationId, Unit* creator)
+    {
+        StartConversation(conversationId, creator ? creator : AnyPlayer());
+    }
+
+    void PlaySceneForPlayers(uint32 sceneId)
+    {
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                player->GetSceneMgr().PlayScene(sceneId);
+    }
+
+    // Leaders talk and walk, they never fight (and never die).
+    static void MakeLeader(Creature* creature)
+    {
+        creature->SetReactState(REACT_PASSIVE);
+        creature->AddUnitFlag(UnitFlags(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
+    }
+
+    Creature* SummonLeader(uint32 entry, Position const& pos)
+    {
+        Creature* creature = Summon(entry, pos);
+        if (creature)
+        {
+            MakeLeader(creature);
+            _phase2Npcs.insert(creature->GetGUID());
+        }
+        return creature;
+    }
+
+    // Soldiers of a summon group: Horde ones join the scenario's side, Alliance ones fight it.
+    // Wounded soldiers and plague wagons only stand there.
+    GuidSet SummonArmy(uint8 groupId, bool alliance)
+    {
+        GuidSet soldiers;
+        for (ObjectGuid const& guid : SummonGroup(groupId))
+        {
+            Creature* creature = instance->GetCreature(guid);
+            if (!creature)
+                continue;
+
+            if (creature->GetEntry() == NPC_WOUNDED_HORDE_SOLDIER || creature->GetEntry() == NPC_PLAGUE_WAGON || groupId == SUMMON_GROUP_KEEP_WALLS)
+            {
+                if (groupId != SUMMON_GROUP_KEEP_WALLS)
+                    MakeCivilian(creature);
+                if (creature->GetEntry() == NPC_WOUNDED_HORDE_SOLDIER)
+                    creature->SetStandState(UNIT_STAND_STATE_DEAD);
+                _armyDecor.insert(guid);
+                continue;
+            }
+
+            creature->SetFaction(alliance ? FACTION_SCENARIO_ENEMY : FACTION_SCENARIO_ALLY);
+            creature->SetReactState(REACT_AGGRESSIVE);
+            soldiers.insert(guid);
+        }
+        return soldiers;
+    }
+
+    void DespawnArmies()
+    {
+        DespawnAll(_armyAllies);
+        DespawnAll(_armyEnemies);
+        DespawnAll(_heldEnemies);
+        DespawnAll(_armyDecor);
+        DespawnAll(_waveUnits);
+        DespawnAll(_phase2Npcs);
+        _marchTargets.clear();
+        _escorts.clear();
+        _arrivalCredits.clear();
+        _waveActive = false;
+    }
+
+    // Both sides fight whoever of the other side is closest; factions 2501/2502 are not
+    // hostile by template, so the script starts the fights. Alliance soldiers marching
+    // somewhere carry on once nothing is in reach.
+    void UpdateArmies(uint32 stepId)
+    {
+        PruneGone(_armyAllies);
+        PruneGone(_armyEnemies);
+        PruneGone(_waveUnits);
+
+        for (ObjectGuid const& guid : _armyAllies)
+            if (Creature* soldier = instance->GetCreature(guid))
+                EngageNearest(soldier, _armyEnemies);
+
+        for (ObjectGuid const& guid : _armyEnemies)
+        {
+            Creature* soldier = instance->GetCreature(guid);
+            if (!soldier || EngageNearest(soldier, _armyAllies) || soldier->IsInCombat())
+                continue;
+
+            auto itr = _marchTargets.find(guid);
+            if (itr == _marchTargets.end())
+                continue;
+
+            if (soldier->GetDistance(itr->second) <= ESCORT_POINT_REACHED)
+                _marchTargets.erase(itr);
+            else if (soldier->movespline->Finalized())
+            {
+                soldier->SetWalk(false);
+                soldier->GetMotionMaster()->MovePoint(0, itr->second);
+            }
+        }
+
+        // A wave with a soldier stuck out of reach still ends.
+        if (_waveActive && GameTime::GetGameTimeMS() - _waveStartTime > uint32(WAVE_GIVE_UP_DELAY.count()))
+        {
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: wave %u ends with %u soldiers out of reach", _waveNumber, uint32(_waveUnits.size()));
+            DespawnAll(_waveUnits);
+            OnWaveDefeated();
+        }
+
+        CheckArmyReinforcements(stepId);
+    }
+
+    bool EngageNearest(Creature* soldier, GuidSet const& opponents)
+    {
+        if (!soldier->IsAlive() || !soldier->IsAIEnabled)
+            return false;
+
+        if (soldier->IsInCombat())
+        {
+            Unit* victim = soldier->GetVictim();
+            if (victim && soldier->GetDistance(victim) <= ARMY_LEASH_RANGE)
+                return true;
+        }
+
+        // After a fight a soldier stays where it is instead of walking back.
+        soldier->SetHomePosition(*soldier);
+
+        Creature* nearest = nullptr;
+        float nearestDist = ARMY_ENGAGE_RANGE;
+        for (ObjectGuid const& guid : opponents)
+        {
+            Creature* opponent = instance->GetCreature(guid);
+            if (!opponent || !opponent->IsAlive())
+                continue;
+            float dist = soldier->GetDistance(opponent);
+            if (dist < nearestDist)
+            {
+                nearest = opponent;
+                nearestDist = dist;
+            }
+        }
+
+        if (!nearest)
+            return false;
+
+        soldier->AI()->AttackStart(nearest);
+        return true;
+    }
+
+    void OnArmyUnitDeath(Creature* creature)
+    {
+        ObjectGuid guid = creature->GetGUID();
+        _armyAllies.erase(guid);
+
+        bool waveUnit = _waveUnits.erase(guid) > 0;
+        if (!_armyEnemies.erase(guid))
+            return;
+
+        if (waveUnit && _waveActive && _waveUnits.empty())
+            OnWaveDefeated();
+
+        // Kills count when a player took part (the soldier was tapped), not when the
+        // Horde army finished the job alone.
+        if (!creature->HasLootRecipients())
+            return;
+
+        switch (GetCurrentStepId())
+        {
+            case STEP_H_PUSH_THEM_BACK:
+                DoSendScenarioEvent(SCENARIO_EVENT_H_ALLIANCE_DEFEATED);
+                break;
+            case STEP_H_OUR_SECRET_WEAPON:
+                DoSendScenarioEvent(SCENARIO_EVENT_H_ALLIANCE_DRIVEN_BACK);
+                if (_blightedEnemies.insert(guid).second)
+                    DoSendScenarioEvent(SCENARIO_EVENT_H_BLIGHT_USED);
+                break;
+            case STEP_H_THE_KING_PIECE:
+            {
+                // Weights 1, 3 and 10 (Criteria.db2): soldiers, Ren'dorei and mages, Flametrons.
+                uint32 eventId = SCENARIO_EVENT_H_DEFEAT_ANDUIN;
+                uint32 weight = 1;
+                if (creature->GetEntry() == NPC_FLAMETRON_5000)
+                {
+                    eventId = SCENARIO_EVENT_H_DEFEAT_ANDUIN_ALLY_2;
+                    weight = 10;
+                }
+                else if (creature->GetEntry() == NPC_RENDOREI_RANGER || creature->GetEntry() == NPC_ALLIANCE_MAGE)
+                {
+                    eventId = SCENARIO_EVENT_H_DEFEAT_ANDUIN_ALLY;
+                    weight = 3;
+                }
+                DoSendScenarioEvent(eventId);
+
+                uint32 before = _kingPieceProgress;
+                _kingPieceProgress += weight;
+                if (before < KING_PIECE_HALFWAY && _kingPieceProgress >= KING_PIECE_HALFWAY)
+                    StartConversationNear(CONVERSATION_ASSAULT_WILL_FALTER, instance->GetCreature(_lorthemarGuid));
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    void CheckArmyReinforcements(uint32 stepId)
+    {
+        switch (stepId)
+        {
+            case STEP_H_PUSH_THEM_BACK:
+                if (_armyEnemies.size() < MIN_FRONT_ENEMIES_LEFT)
+                    ScheduleArmyReinforcements(stepId, SUMMON_GROUP_FRONT_ALLIANCE);
+                break;
+            case STEP_H_OUR_SECRET_WEAPON:
+                if (_armyEnemies.size() < MIN_FIELD_ENEMIES_LEFT)
+                    ScheduleArmyReinforcements(stepId, SUMMON_GROUP_FIELD_ALLIANCE);
+                break;
+            case STEP_H_THE_KING_PIECE:
+                if (_armyEnemies.size() < MIN_CHOKEPOINT_ENEMIES_LEFT)
+                    ScheduleArmyReinforcements(stepId, SUMMON_GROUP_CHOKEPOINT_ALLIANCE);
+                break;
+            default:
+                break;
+        }
+    }
+
+    void ScheduleArmyReinforcements(uint32 stepId, uint8 groupId)
+    {
+        if (!_pendingReinforcements.insert(groupId).second)
+            return;
+
+        _scheduler.Schedule(REINFORCEMENTS_DELAY, [this, stepId, groupId](TaskContext /*context*/)
+        {
+            _pendingReinforcements.erase(groupId);
+            if (GetCurrentStepId() != stepId)
+                return;
+
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: Alliance reinforcements arrive (summon group %u, step %u)", uint32(groupId), stepId);
+            GuidSet soldiers = SummonArmy(groupId, true);
+            if (groupId == SUMMON_GROUP_CHOKEPOINT_ALLIANCE)
+                MarchTo(soldiers, AllianceMarchTarget);
+            Merge(_armyEnemies, soldiers);
+        });
+    }
+
+    void MarchTo(GuidSet const& soldiers, Position const& target)
+    {
+        uint32 i = 0;
+        for (ObjectGuid const& guid : soldiers)
+        {
+            // Spread out around the target instead of piling up on one spot.
+            float angle = float(i % 8) * float(M_PI) / 4.0f;
+            float dist = 3.0f + float(i / 8) * 3.0f;
+            _marchTargets[guid] = GroundPos(target.GetPositionX() + std::cos(angle) * dist, target.GetPositionY() + std::sin(angle) * dist,
+                target.GetPositionZ(), target.GetOrientation());
+            ++i;
+        }
+    }
+
+    // ---- Escorts -------------------------------------------------------------------------
+
+    void StartEscort(Creature* creature, std::vector<Position> const& points, EscortEnd end, bool waitForPlayers)
+    {
+        if (!creature)
+            return;
+
+        _escorts.erase(std::remove_if(_escorts.begin(), _escorts.end(), [creature](Escort const& escort)
+        {
+            return escort.Guid == creature->GetGUID();
+        }), _escorts.end());
+
+        Escort escort;
+        escort.Guid = creature->GetGUID();
+        escort.Points = SnapRoute(points);
+        escort.End = end;
+        escort.WaitForPlayers = waitForPlayers;
+        _escorts.push_back(escort);
+    }
+
+    void UpdateEscorts()
+    {
+        std::vector<std::pair<EscortEnd, ObjectGuid>> finished;
+        for (auto itr = _escorts.begin(); itr != _escorts.end();)
+        {
+            Creature* creature = instance->GetCreature(itr->Guid);
+            if (!creature || !creature->IsAlive())
+            {
+                itr = _escorts.erase(itr);
+                continue;
+            }
+
+            creature->SetWalk(false);
+            Position const& target = itr->Points[itr->Index];
+            if (creature->GetDistance(target) > ESCORT_POINT_REACHED)
+            {
+                // Leading the players: waits for them when they fall behind.
+                if (itr->WaitForPlayers && !IsPlayerNear(creature, ESCORT_WAIT_RANGE))
+                {
+                    if (!creature->movespline->Finalized())
+                        creature->StopMoving();
+                }
+                else if (creature->movespline->Finalized())
+                    creature->GetMotionMaster()->MovePoint(0, target);
+                ++itr;
+                continue;
+            }
+
+            if (++itr->Index < itr->Points.size())
+            {
+                ++itr;
+                continue;
+            }
+
+            if (target.GetOrientation() != 0.0f)
+                creature->SetFacingTo(target.GetOrientation());
+            finished.emplace_back(itr->End, itr->Guid);
+            itr = _escorts.erase(itr);
+        }
+
+        for (auto const& end : finished)
+            OnEscortEnd(end.first, instance->GetCreature(end.second));
+    }
+
+    void UpdateArrivalCredits()
+    {
+        for (auto itr = _arrivalCredits.begin(); itr != _arrivalCredits.end();)
+        {
+            Creature* creature = instance->GetCreature(itr->Guid);
+            if (creature && IsPlayerNear(creature, ARRIVAL_CREDIT_RANGE))
+            {
+                DoSendScenarioEvent(itr->EventId);
+                itr = _arrivalCredits.erase(itr);
+            }
+            else
+                ++itr;
+        }
+    }
+
+    void OnEscortEnd(EscortEnd end, Creature* creature)
+    {
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: escort end %u", uint32(end));
+
+        switch (end)
+        {
+            case EscortEnd::NathanosAtSide:
+                // Nathanos sends Baine away, then leads the players to Lor'themar.
+                StartConversationNear(CONVERSATION_NATHANOS_BAINE, creature);
+                _scheduler.Schedule(CHAMPIONS_WITH_ME, [this](TaskContext /*context*/)
+                {
+                    StartEscort(instance->GetCreature(_nathanosGuid), NathanosRouteToFlank, EscortEnd::NathanosAtFlank, true);
+                    StartEscort(instance->GetCreature(_baineGuid), { BaineCourtyard }, EscortEnd::None, false);
+                    if (!instance->GetCreature(_lorthemarGuid))
+                        if (Creature* lorthemar = SummonLeader(NPC_LORTHEMAR, LorthemarFlank))
+                            _lorthemarGuid = lorthemar->GetGUID();
+                });
+                break;
+            case EscortEnd::NathanosAtFlank:
+                StartConversationNear(CONVERSATION_NATHANOS_LORTHEMAR, creature);
+                _scheduler.Schedule(WITH_PLEASURE, [this](TaskContext /*context*/)
+                {
+                    StartEscort(instance->GetCreature(_lorthemarGuid), { LorthemarChokepoint }, EscortEnd::None, false);
+                    StartEscort(instance->GetCreature(_nathanosGuid), NathanosRouteToChokepoint, EscortEnd::NathanosAtChokepoint, true);
+                });
+                break;
+            case EscortEnd::NathanosAtChokepoint:
+                // The reserves take position; "Soldiers, fall into position!"
+                if (_armyAllies.empty())
+                    Merge(_armyAllies, SummonArmy(SUMMON_GROUP_CHOKEPOINT_HORDE, false));
+                StartConversationNear(CONVERSATION_BLIGHT_THROWERS, creature);
+                _scheduler.Schedule(BLIGHT_THROWERS_LENGTH, [this](TaskContext /*context*/)
+                {
+                    if (Creature* nathanos = instance->GetCreature(_nathanosGuid))
+                    {
+                        nathanos->Yell(BROADCAST_TEXT_FALL_INTO_POSITION);
+                        _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_NATHANOS_KEEP, nathanos->GetGUID() });
+                    }
+                });
+                break;
+            case EscortEnd::NathanosRetreatLeg1:
+                StartConversationNear(CONVERSATION_KEEP_MOVING, creature);
+                StartEscort(creature, NathanosRetreatLeg2, EscortEnd::NathanosRetreatLeg2, true);
+                break;
+            case EscortEnd::NathanosRetreatLeg2:
+                StartConversationNear(CONVERSATION_ALMOST_THERE, creature);
+                StartEscort(creature, NathanosRetreatLeg3, EscortEnd::NathanosAtCourtyard, true);
+                break;
+            case EscortEnd::NathanosAtCourtyard:
+                if (creature)
+                    _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_NATHANOS_SAFETY, creature->GetGUID() });
+                break;
+            case EscortEnd::SaurfangAtSylvanas:
+                OnSaurfangMeetsSylvanas();
+                break;
+            case EscortEnd::SylvanasAtThroneDoor:
+                if (creature)
+                    _arrivalCredits.push_back({ SCENARIO_EVENT_H_FOLLOW_SYLVANAS, creature->GetGUID() });
+                break;
+            default:
+                break;
+        }
+    }
+
+    Creature* CourtyardLeader(uint32 entry) const
+    {
+        for (ObjectGuid const& guid : _courtyard)
+            if (Creature* creature = instance->GetCreature(guid))
+                if (creature->GetEntry() == entry && creature->IsAlive())
+                    return creature;
+        return nullptr;
+    }
+
+    // ---- Push Them Back --------------------------------------------------------------------
+    // Out of the gates: the Horde army meets the Alliance front line.
+    void StartPushThemBack()
+    {
+        Merge(_armyAllies, SummonArmy(SUMMON_GROUP_FRONT_HORDE, false));
+        Merge(_armyEnemies, SummonArmy(SUMMON_GROUP_FRONT_ALLIANCE, true));
+        SummonArmy(SUMMON_GROUP_KEEP_WALLS, false);
+
+        if (!GetSaurfang())
+            SummonSaurfang(SaurfangFrontLine);
+        _phase2SaurfangRoute = SnapRoute({ SaurfangPushLine });
+        StartSaurfangRoute(_phase2SaurfangRoute, SaurfangRouteEnd::PushLine);
+    }
+
+    // ---- Defend the Azerite War Machine ----------------------------------------------------
+    void StartDefendWarMachine()
+    {
+        DespawnAll(_armyEnemies);
+
+        PlaySceneForPlayers(SCENE_AZERITE_MACHINE_ARRIVES);
+        if (Creature* warMachine = Summon(NPC_AZERITE_WAR_MACHINE, WarMachinePos))
+        {
+            MakeLeader(warMachine);
+            _warMachineGuid = warMachine->GetGUID();
+            _phase2Npcs.insert(_warMachineGuid);
+        }
+
+        Creature* saurfang = GetSaurfang();
+        StartConversationNear(CONVERSATION_WAR_MACHINE_ARRIVES, saurfang);
+        _phase2SaurfangRoute = SnapRoute({ WarMachineDefense });
+        StartSaurfangRoute(_phase2SaurfangRoute, SaurfangRouteEnd::WarMachine);
+
+        _waveNumber = 0;
+        _scheduler.Schedule(WAR_MACHINE_ARRIVES_LENGTH, [this](TaskContext /*context*/)
+        {
+            SpawnWave(1);
+        });
+    }
+
+    void SpawnWave(uint32 number)
+    {
+        if (GetCurrentStepId() != STEP_H_DEFEND_WAR_MACHINE)
+            return;
+
+        static std::vector<uint32> const waves[3] =
+        {
+            { NPC_KNIGHT_CAPTAIN_EMERY, NPC_STORMWIND_FOOTMAN, NPC_STORMWIND_FOOTMAN, NPC_STORMWIND_FOOTMAN, NPC_STORMWIND_FOOTMAN,
+              NPC_DWARVEN_RIFLEMAN, NPC_DWARVEN_RIFLEMAN, NPC_DWARVEN_RIFLEMAN, NPC_DWARVEN_RIFLEMAN },
+            { NPC_MASTER_SHAPESHIFTER_LYARA, NPC_DARNASSIAN_HUNTRESS, NPC_DARNASSIAN_HUNTRESS, NPC_DARNASSIAN_HUNTRESS,
+              NPC_DARNASSIAN_HUNTRESS, NPC_GLAIVE_THROWER, NPC_DRUID_OF_THE_CLAW_2, NPC_DRUID_OF_THE_CLAW_2, NPC_DRUID_OF_THE_CLAW_2 },
+            { NPC_MECHANORANGER_COGSPARK, NPC_EXODAR_PEACEKEEPER, NPC_EXODAR_PEACEKEEPER, NPC_EXODAR_PEACEKEEPER,
+              NPC_AUCHENAI_BALLISTA, NPC_AUCHENAI_BALLISTA, NPC_GRYPHON_RIDER, NPC_GRYPHON_RIDER, NPC_GILNEAN_MAULER, NPC_GILNEAN_MAULER },
+        };
+        static uint32 const waveConversations[3] = { CONVERSATION_WAVE_EMERY, CONVERSATION_WAVE_LYARA, CONVERSATION_WAVE_COGSPARK };
+
+        _waveNumber = number;
+        _waveActive = true;
+        _waveStartTime = GameTime::GetGameTimeMS();
+
+        Creature* leader = nullptr;
+        GuidSet wave;
+        uint32 i = 0;
+        for (uint32 entry : waves[number - 1])
+        {
+            // Rows of three, the leader in front.
+            float x = WaveSpawn.GetPositionX() + float(i / 3) * 4.0f;
+            float y = WaveSpawn.GetPositionY() + (float(i % 3) - 1.0f) * 4.0f;
+            if (Creature* soldier = Summon(entry, GroundPos(x, y, WaveSpawn.GetPositionZ(), WaveSpawn.GetOrientation())))
+            {
+                soldier->SetFaction(FACTION_SCENARIO_ENEMY);
+                soldier->SetReactState(REACT_AGGRESSIVE);
+                wave.insert(soldier->GetGUID());
+                if (!leader)
+                    leader = soldier;
+            }
+            ++i;
+        }
+
+        MarchTo(wave, WaveTarget);
+        Merge(_waveUnits, wave);
+        Merge(_armyEnemies, wave);
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: wave %u of the Alliance attacks (%u soldiers)", number, uint32(wave.size()));
+
+        StartConversationNear(waveConversations[number - 1], leader);
+        if (number == 1)
+            _scheduler.Schedule(6s, [this](TaskContext /*context*/)
+            {
+                StartConversationNear(CONVERSATION_BLAST_THE_TOWERS, GetSaurfang());
+            });
+    }
+
+    void OnWaveDefeated()
+    {
+        _waveActive = false;
+        DoSendScenarioEvent(SCENARIO_EVENT_H_WAVE_DEFEATED);
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: wave %u defeated", _waveNumber);
+
+        if (_waveNumber < 3)
+        {
+            uint32 next = _waveNumber + 1;
+            _scheduler.Schedule(NEXT_WAVE_DELAY, [this, next](TaskContext /*context*/)
+            {
+                SpawnWave(next);
+            });
+        }
+        else
+            DoSendScenarioEvent(SCENARIO_EVENT_H_WAR_MACHINE_DEFENDED);
+    }
+
+    // ---- Our Secret Weapon -----------------------------------------------------------------
+    // Anduin breaks the War Machine, Sylvanas answers with the blight; Trizz hands out gas
+    // masks and blight canisters while the Alliance is driven back.
+    void StartOurSecretWeapon()
+    {
+        DespawnAll(_waveUnits);
+        DespawnAll(_armyEnemies);
+        _waveActive = false;
+        _blightedEnemies.clear();
+        _blightSceneStage = 0;
+
+        PlaySceneForPlayers(SCENE_WAR_MACHINE_DESTROYED);
+        _scheduler.Schedule(SCENE_FALLBACK, [this](TaskContext /*context*/) { OnWarMachineSceneDone(); });
+
+        Merge(_armyEnemies, SummonArmy(SUMMON_GROUP_FIELD_ALLIANCE, true));
+        Merge(_armyAllies, SummonArmy(SUMMON_GROUP_FIELD_HORDE, false));
+
+        if (Creature* trizz = Summon(NPC_SLUDGE_GUARD_TRIZZ, TrizzPos))
+        {
+            MakeLeader(trizz);
+            trizz->SetNpcFlags(UNIT_NPC_FLAG_GOSSIP);
+            _trizzGuid = trizz->GetGUID();
+            _phase2Npcs.insert(_trizzGuid);
+        }
+    }
+
+    void OnWarMachineSceneDone()
+    {
+        if (_blightSceneStage != 0 || GetCurrentStepId() != STEP_H_OUR_SECRET_WEAPON)
+            return;
+
+        _blightSceneStage = 1;
+        if (Creature* warMachine = instance->GetCreature(_warMachineGuid))
+            warMachine->DespawnOrUnsummon();
+
+        PlaySceneForPlayers(SCENE_SYLVANAS_DUMPS_BLIGHT);
+        _scheduler.Schedule(SCENE_FALLBACK, [this](TaskContext /*context*/) { OnBlightSceneDone(); });
+    }
+
+    void OnBlightSceneDone()
+    {
+        if (_blightSceneStage != 1 || GetCurrentStepId() != STEP_H_OUR_SECRET_WEAPON)
+            return;
+
+        _blightSceneStage = 2;
+        if (Creature* trizz = instance->GetCreature(_trizzGuid))
+            trizz->Yell(BROADCAST_TEXT_TRIZZ_GAS_MASKS);
+        StartConversationNear(CONVERSATION_WOUNDED_ON_THE_FIELD, GetSaurfang());
+    }
+
+    // ---- Like Wildfire ---------------------------------------------------------------------
+    // "Turn the Tide": Jaina's ship breaches the wall. After the movie the players are back in
+    // the courtyard, where Nathanos takes the reserves to the chokepoint.
+    void StartLikeWildfire()
+    {
+        DespawnArmies();
+        if (Creature* saurfang = GetSaurfang())
+            saurfang->DespawnOrUnsummon();
+        _saurfangGuid.Clear();
+        _saurfangMode = SaurfangMode::Idle;
+        _likeWildfireStarted = false;
+
+        for (auto& ref : instance->GetPlayers())
+        {
+            Player* player = ref.GetSource();
+            if (!player)
+                continue;
+
+            ObjectGuid playerGuid = player->GetGUID();
+            player->SendMovieStart(MOVIE_TURN_THE_TIDE);
+            player->AddMovieDelayedAction(MOVIE_TURN_THE_TIDE, [playerGuid]()
+            {
+                if (Player* p = ObjectAccessor::FindPlayer(playerGuid))
+                    if (p->GetMapId() == MAP_LORDAERON_SCENARIO)
+                        p->NearTeleportTo(CourtyardArrival);
+            });
+        }
+
+        _scheduler.Schedule(MOVIE_FALLBACK, [this](TaskContext /*context*/) { BeginLikeWildfire(); });
+    }
+
+    void BeginLikeWildfire()
+    {
+        if (_likeWildfireStarted || GetCurrentStepId() != STEP_H_LIKE_WILDFIRE)
+            return;
+        _likeWildfireStarted = true;
+
+        // Players that never reported the end of the movie are brought along as well.
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                if (!player->IsBeingTeleported() && player->GetDistance(CourtyardArrival) > 60.0f)
+                    player->NearTeleportTo(CourtyardArrival);
+
+        if (_courtyard.empty())
+            _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
+
+        Creature* sylvanas = CourtyardLeader(NPC_SYLVANAS);
+        if (Creature* baine = CourtyardLeader(NPC_BAINE))
+            _baineGuid = baine->GetGUID();
+        if (Creature* nathanos = SummonLeader(NPC_NATHANOS, NathanosCourtyard))
+            _nathanosGuid = nathanos->GetGUID();
+
+        StartConversationNear(CONVERSATION_CUT_THEM_OFF, sylvanas);
+        _scheduler.Schedule(HEROES_FOLLOW_ME, [this](TaskContext /*context*/)
+        {
+            StartEscort(instance->GetCreature(_nathanosGuid), NathanosRouteToSide, EscortEnd::NathanosAtSide, false);
+            StartEscort(instance->GetCreature(_baineGuid), { BaineSide }, EscortEnd::None, false);
+        });
+    }
+
+    // ---- Holding Them Back -----------------------------------------------------------------
+    // Anduin, Jaina and Genn reach the chokepoint; Alleria and Mekkatorque come through a void tear.
+    void StartHoldingThemBack()
+    {
+        EnsureChokepoint();
+
+        _allianceLeaders.clear();
+        for (auto const& leader : { std::make_pair(NPC_ANDUIN, AnduinChokepoint), std::make_pair(NPC_JAINA, JainaChokepoint), std::make_pair(NPC_GENN, GennChokepoint) })
+            if (Creature* creature = SummonLeader(leader.first, leader.second))
+                _allianceLeaders.insert(creature->GetGUID());
+
+        // The Alliance army waits for the end of the talk.
+        Merge(_heldEnemies, SummonArmy(SUMMON_GROUP_CHOKEPOINT_ALLIANCE, true));
+        for (ObjectGuid const& guid : _heldEnemies)
+            if (Creature* soldier = instance->GetCreature(guid))
+                soldier->SetReactState(REACT_PASSIVE);
+
+        StartConversationNear(CONVERSATION_OUTNUMBERED, instance->GetCreature(_nathanosGuid));
+
+        _scheduler.Schedule(HOLD_YOUR_GROUND, [this](TaskContext /*context*/)
+        {
+            SummonVoidTear();
+        });
+        _scheduler.Schedule(OUTNUMBERED_LENGTH, [this](TaskContext /*context*/)
+        {
+            if (GetCurrentStepId() == STEP_H_HOLDING_THEM_BACK)
+                DoSendScenarioEvent(SCENARIO_EVENT_H_INTERCEPT_ALLIANCE);
+        });
+    }
+
+    // Nathanos, Lor'themar and the Horde reserves at the chokepoint (also after a .lordaeron step).
+    void EnsureChokepoint()
+    {
+        Creature* nathanos = instance->GetCreature(_nathanosGuid);
+        if (!nathanos)
+        {
+            nathanos = SummonLeader(NPC_NATHANOS, NathanosChokepoint);
+            if (nathanos)
+                _nathanosGuid = nathanos->GetGUID();
+        }
+        else
+            StartEscort(nathanos, { NathanosChokepoint }, EscortEnd::None, false);
+
+        Creature* lorthemar = instance->GetCreature(_lorthemarGuid);
+        if (!lorthemar)
+        {
+            lorthemar = SummonLeader(NPC_LORTHEMAR, LorthemarChokepoint);
+            if (lorthemar)
+                _lorthemarGuid = lorthemar->GetGUID();
+        }
+
+        if (_armyAllies.empty())
+            Merge(_armyAllies, SummonArmy(SUMMON_GROUP_CHOKEPOINT_HORDE, false));
+    }
+
+    void SummonVoidTear()
+    {
+        if (_voidTearOpen)
+            return;
+        _voidTearOpen = true;
+
+        for (auto const& leader : { std::make_pair(NPC_ALLERIA, AlleriaVoidTear), std::make_pair(NPC_MEKKATORQUE, MekkatorqueVoidTear) })
+            if (Creature* creature = SummonLeader(leader.first, leader.second))
+                _allianceLeaders.insert(creature->GetGUID());
+
+        GuidSet arrivals = SummonArmy(SUMMON_GROUP_VOID_TEAR, true);
+        for (ObjectGuid const& guid : arrivals)
+            if (Creature* soldier = instance->GetCreature(guid))
+                soldier->SetReactState(REACT_PASSIVE);
+        Merge(_heldEnemies, arrivals);
+    }
+
+    // ---- The King Piece --------------------------------------------------------------------
+    void StartTheKingPiece()
+    {
+        EnsureChokepoint();
+        if (_allianceLeaders.empty())
+            for (auto const& leader : { std::make_pair(NPC_ANDUIN, AnduinChokepoint), std::make_pair(NPC_JAINA, JainaChokepoint), std::make_pair(NPC_GENN, GennChokepoint) })
+                if (Creature* creature = SummonLeader(leader.first, leader.second))
+                    _allianceLeaders.insert(creature->GetGUID());
+        if (_heldEnemies.empty() && _armyEnemies.empty())
+            Merge(_heldEnemies, SummonArmy(SUMMON_GROUP_CHOKEPOINT_ALLIANCE, true));
+        SummonVoidTear();
+
+        StartConversationNear(CONVERSATION_EVEN_THE_ODDS, instance->GetCreature(_nathanosGuid));
+
+        // The Alliance charges the reserves.
+        _kingPieceProgress = 0;
+        for (ObjectGuid const& guid : _heldEnemies)
+            if (Creature* soldier = instance->GetCreature(guid))
+                soldier->SetReactState(REACT_AGGRESSIVE);
+        MarchTo(_heldEnemies, AllianceMarchTarget);
+        Merge(_armyEnemies, _heldEnemies);
+        _heldEnemies.clear();
+    }
+
+    // ---- Cry Havoc -------------------------------------------------------------------------
+    // Sylvanas calls the retreat and blocks the Alliance with exploding cisterns; Nathanos
+    // leads everyone back to the courtyard.
+    void StartCryHavoc()
+    {
+        EnsureChokepoint();
+
+        Creature* sylvanas = SummonLeader(NPC_SYLVANAS, SylvanasCryHavoc);
+        Creature* baine = SummonLeader(NPC_BAINE, BaineCryHavoc);
+        ObjectGuid baineGuid = baine ? baine->GetGUID() : ObjectGuid::Empty;
+        ObjectGuid sylvanasGuid = sylvanas ? sylvanas->GetGUID() : ObjectGuid::Empty;
+
+        _scheduler.Schedule(2s, [this, baineGuid](TaskContext /*context*/)
+        {
+            if (Creature* b = instance->GetCreature(baineGuid))
+                b->Yell(BROADCAST_TEXT_BAINE_RETREAT);
+        });
+        _scheduler.Schedule(4s, [this](TaskContext /*context*/)
+        {
+            PlaySceneForPlayers(SCENE_SYLVANAS_BLOCKS_ALLIANCE);
+            for (ObjectGuid const& guid : _allianceLeaders)
+                if (Creature* leader = instance->GetCreature(guid))
+                    if (leader->GetEntry() == NPC_JAINA)
+                        leader->Yell(BROADCAST_TEXT_JAINA_MUST_NOT_ESCAPE);
+        });
+        _scheduler.Schedule(7s, [this, sylvanasGuid](TaskContext /*context*/)
+        {
+            // The blight swallows the battlefield.
+            DespawnAll(_armyEnemies);
+            DespawnAll(_heldEnemies);
+            DespawnAll(_allianceLeaders);
+            DespawnAll(_armyAllies);
+            StartConversationNear(CONVERSATION_FOLLOW_NATHANOS, instance->GetCreature(sylvanasGuid));
+            StartEscort(instance->GetCreature(_nathanosGuid), NathanosRetreatLeg1, EscortEnd::NathanosRetreatLeg1, true);
+            if (Creature* lorthemar = instance->GetCreature(_lorthemarGuid))
+                lorthemar->DespawnOrUnsummon(3s);
+        });
+        _scheduler.Schedule(20s, [this, sylvanasGuid, baineGuid](TaskContext /*context*/)
+        {
+            // Sylvanas holds the Alliance back and meets everyone in the courtyard.
+            for (ObjectGuid const& guid : { sylvanasGuid, baineGuid })
+                if (Creature* creature = instance->GetCreature(guid))
+                    creature->DespawnOrUnsummon();
+        });
+    }
+
+    // ---- The Dark Lady ---------------------------------------------------------------------
+    // Saurfang finally shows up; Sylvanas leaves him to his last stand and takes the
+    // champions to the throne room.
+    void StartTheDarkLady()
+    {
+        if (_courtyard.empty())
+            _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
+
+        Creature* sylvanas = CourtyardLeader(NPC_SYLVANAS);
+        if (sylvanas)
+        {
+            sylvanas->NearTeleportTo(SylvanasCourtyard);
+            _sylvanasGuid = sylvanas->GetGUID();
+        }
+
+        if (Creature* saurfang = SummonSaurfang(SaurfangFrontLine))
+            StartEscort(saurfang, { SaurfangCourtyard }, EscortEnd::SaurfangAtSylvanas, false);
+    }
+
+    void OnSaurfangMeetsSylvanas()
+    {
+        Creature* sylvanas = instance->GetCreature(_sylvanasGuid);
+        StartConversationNear(CONVERSATION_FINALLY_SHOW_UP, sylvanas);
+
+        _scheduler.Schedule(CHAMPIONS_BEAR_WITNESS, [this](TaskContext /*context*/)
+        {
+            StartEscort(instance->GetCreature(_sylvanasGuid), { SylvanasThroneDoor }, EscortEnd::SylvanasAtThroneDoor, true);
+            // Saurfang stays behind and faces the gates.
+            if (Creature* saurfang = GetSaurfang())
+                saurfang->SetFacingTo(0.0f);
+        });
+    }
+
+    // ---- Finale ----------------------------------------------------------------------------
+    // The throne room movie; the scenario and the quest objective are done and the players
+    // fly back to Orgrimmar.
+    void StartFinale()
+    {
+        for (auto& ref : instance->GetPlayers())
+        {
+            Player* player = ref.GetSource();
+            if (!player)
+                continue;
+
+            player->KilledMonsterCredit(NPC_SCENARIO_COMPLETE_CREDIT);
+            ObjectGuid playerGuid = player->GetGUID();
+            player->SendMovieStart(MOVIE_THRONE_ROOM_HORDE);
+            player->AddMovieDelayedAction(MOVIE_THRONE_ROOM_HORDE, [playerGuid]()
+            {
+                if (Player* p = ObjectAccessor::FindPlayer(playerGuid))
+                    if (p->GetMapId() == MAP_LORDAERON_SCENARIO)
+                        p->TeleportTo(1, OrgrimmarGates);
+            });
+        }
+
+        if (InstanceScenario* scenario = instance->GetInstanceScenario())
+            if (ScenarioStepEntry const* step = scenario->GetStep())
+                if (step->ID == STEP_H_FINALE)
+                {
+                    TC_LOG_INFO("scripts", "Battle for Lordaeron: scenario completed");
+                    scenario->SetStepState(step, SCENARIO_STEP_DONE);
+                    scenario->CompleteStep(step);
+                }
+
+        _scheduler.Schedule(MOVIE_FALLBACK, [this](TaskContext /*context*/)
+        {
+            for (auto& ref : instance->GetPlayers())
+                if (Player* player = ref.GetSource())
+                    player->TeleportTo(1, OrgrimmarGates);
+        });
+    }
+
     void OpenPortcullises(GuidSet const& portcullises, char const* name)
     {
         uint32 opened = 0;
@@ -918,7 +1947,7 @@ private:
         TC_LOG_INFO("scripts", "Battle for Lordaeron: %u %s portcullis opened", opened, name);
     }
 
-    // ---- Test helper: .lordaeron step <2-5> -----------------------------------------
+    // ---- Test helper: .lordaeron step <2-13> ----------------------------------------
     // Skips forward to a step: what the earlier steps leave behind is set up (gates open,
     // their NPCs gone), Saurfang and the players are put where the step starts and the step
     // then starts as usual (OnStepChanged on the next tick).
@@ -930,8 +1959,10 @@ private:
 
     void JumpToStep(uint32 number)
     {
-        static uint32 const stepIds[] = { STEP_H_UNDER_SIEGE, STEP_H_SPIES_IN_OUR_MIDST, STEP_H_TO_THE_HEART, STEP_H_EVACUATE_HEART, STEP_H_TO_BATTLE };
-        if (number < 2 || number > 5)
+        static uint32 const stepIds[] = { STEP_H_UNDER_SIEGE, STEP_H_SPIES_IN_OUR_MIDST, STEP_H_TO_THE_HEART, STEP_H_EVACUATE_HEART, STEP_H_TO_BATTLE,
+            STEP_H_PUSH_THEM_BACK, STEP_H_DEFEND_WAR_MACHINE, STEP_H_OUR_SECRET_WEAPON, STEP_H_LIKE_WILDFIRE, STEP_H_HOLDING_THEM_BACK,
+            STEP_H_THE_KING_PIECE, STEP_H_CRY_HAVOC, STEP_H_THE_DARK_LADY };
+        if (number < 2 || number > 13)
             return;
 
         InstanceScenario* scenario = instance->GetInstanceScenario();
@@ -962,6 +1993,39 @@ private:
             DespawnAll(_heartEnemies);
             DespawnAll(_heartCitizens);
         }
+        if (number >= 6)
+        {
+            // To Battle! is behind: the courtyard is set and the keep gates are open.
+            _keepPortalOpen = true;
+            _courtyardReached = true;
+            _followSaurfangToBattleDone = true;
+            OpenPortcullises(_keepFrontGates, "keep front");
+            if (_courtyard.empty())
+                _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
+            DespawnArmies();
+        }
+
+        if (number >= 9)
+        {
+            // From Like Wildfire on, Saurfang is gone (he shows up again for The Dark Lady).
+            if (Creature* saurfang = GetSaurfang())
+                saurfang->DespawnOrUnsummon();
+            _saurfangGuid.Clear();
+            _saurfangMode = SaurfangMode::Idle;
+
+            Position playerPos = (number >= 10 && number <= 12) ? GroundPos(1458.0f, 262.0f, 61.7f, 1.0f) : CourtyardArrival;
+            for (auto& ref : instance->GetPlayers())
+                if (Player* player = ref.GetSource())
+                    player->NearTeleportTo(playerPos);
+
+            for (ScenarioStepEntry const* step : sScenarioStepStore)
+                if (step->ScenarioID == target->ScenarioID && !step->IsBonusObjective() && step->OrderIndex < target->OrderIndex)
+                    scenario->SetStepState(step, SCENARIO_STEP_DONE);
+            scenario->SetStep(target);
+
+            TC_LOG_INFO("scripts", "Battle for Lordaeron: jumped to step %u (%u)", number, target->ID);
+            return;
+        }
 
         Position saurfangPos;
         Position playerPos;
@@ -978,6 +2042,18 @@ private:
             case 4: // in front of the heart gate, on the canal side
                 saurfangPos = GroundPos(1556.3f, 201.5f, -60.75f, 0.77f);
                 playerPos = GroundPos(1552.5f, 198.0f, -60.75f, 0.77f);
+                break;
+            case 6: // out of the keep gates
+                saurfangPos = GroundPos(SaurfangFrontLine.GetPositionX(), SaurfangFrontLine.GetPositionY(), SaurfangFrontLine.GetPositionZ(), 0.0f);
+                playerPos = GroundPos(1850.0f, 238.3f, 62.1f, 0.0f);
+                break;
+            case 7:
+                saurfangPos = GroundPos(SaurfangPushLine.GetPositionX(), SaurfangPushLine.GetPositionY(), SaurfangPushLine.GetPositionZ(), 0.0f);
+                playerPos = GroundPos(1990.0f, 243.4f, 36.0f, 0.0f);
+                break;
+            case 8:
+                saurfangPos = GroundPos(WarMachineDefense.GetPositionX(), WarMachineDefense.GetPositionY(), WarMachineDefense.GetPositionZ(), 0.0f);
+                playerPos = GroundPos(1912.0f, 236.0f, 56.0f, 0.0f);
                 break;
             default:
                 saurfangPos = SaurfangHeart;
@@ -1100,6 +2176,33 @@ private:
     GuidSet _heartCitizens;
     GuidSet _heartEnemies;
     GuidSet _courtyard;
+
+    // Steps 6-13
+    GuidSet _armyAllies;
+    GuidSet _armyEnemies;
+    GuidSet _heldEnemies;       // Alliance soldiers waiting for the end of a talk
+    GuidSet _armyDecor;         // wounded soldiers, plague wagons, soldiers on the walls
+    GuidSet _waveUnits;
+    GuidSet _phase2Npcs;        // leaders, Trizz, the War Machine
+    GuidSet _allianceLeaders;
+    GuidSet _blightedEnemies;
+    std::map<ObjectGuid, Position> _marchTargets;
+    std::vector<Escort> _escorts;
+    std::vector<ArrivalCredit> _arrivalCredits;
+    std::vector<Position> _phase2SaurfangRoute;
+    ObjectGuid _warMachineGuid;
+    ObjectGuid _trizzGuid;
+    ObjectGuid _nathanosGuid;
+    ObjectGuid _lorthemarGuid;
+    ObjectGuid _baineGuid;
+    ObjectGuid _sylvanasGuid;
+    uint32 _waveNumber = 0;
+    bool _waveActive = false;
+    uint32 _waveStartTime = 0;
+    uint8 _blightSceneStage = 0;
+    bool _likeWildfireStarted = false;
+    bool _voidTearOpen = false;
+    uint32 _kingPieceProgress = 0;
 };
 
 // Undercity citizens in the heart of the city (Evacuate the Heart of the City).
@@ -1136,8 +2239,101 @@ public:
     }
 };
 
-// .lordaeron step <2-5>: test command, skips forward to a step of the Horde scenario.
-// 2 Spies in Our Midst, 3 To the Heart!, 4 Evacuate the Heart of the City, 5 To Battle!
+// Sludge Guard Trizz (Our Secret Weapon): a gas mask, or a gas mask and a blight canister.
+class npc_lordaeron_sludge_guard_trizz : public CreatureScript
+{
+public:
+    npc_lordaeron_sludge_guard_trizz() : CreatureScript("npc_lordaeron_sludge_guard_trizz") { }
+
+    static std::string BroadcastText(Player* player, uint32 id, char const* fallback)
+    {
+        if (BroadcastTextEntry const* text = sBroadcastTextStore.LookupEntry(id))
+            return DB2Manager::GetBroadcastTextValue(text, player->GetSession()->GetSessionDbcLocale());
+        return fallback;
+    }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        ClearGossipMenuFor(player);
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, BroadcastText(player, BROADCAST_TEXT_GAS_MASK, "Just a gas mask for me, please."),
+            GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 1);
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, BroadcastText(player, BROADCAST_TEXT_GAS_MASK_AND_BLIGHT,
+            "Gas mask and blight canister, please. I want to see what this thing can do."), GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF + 2);
+        SendGossipMenuFor(player, player->GetGossipTextId(GOSSIP_MENU_SLUDGE_GUARD_TRIZZ, creature), creature->GetGUID());
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, Creature* /*creature*/, uint32 /*sender*/, uint32 action) override
+    {
+        CloseGossipMenuFor(player);
+        player->CastSpell(player, SPELL_BLIGHT_RESISTANT_GAS_MASK, true);
+        if (action == GOSSIP_ACTION_INFO_DEF + 2)
+            player->CastSpell(player, SPELL_BLIGHT_CANISTER, true);
+        return true;
+    }
+};
+
+// 261748 - Blight Spray: every Alliance soldier caught in it counts for Our Secret Weapon.
+class spell_lordaeron_blight_spray : public SpellScript
+{
+    PrepareSpellScript(spell_lordaeron_blight_spray);
+
+    void HandleHit(SpellEffIndex /*effIndex*/)
+    {
+        Creature* target = GetHitCreature();
+        if (!target)
+            return;
+        if (InstanceScript* instance = target->GetInstanceScript())
+            instance->SetGuidData(DATA_BLIGHT_SPRAY_HIT, target->GetGUID());
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_lordaeron_blight_spray::HandleHit, EFFECT_1, SPELL_EFFECT_SCHOOL_DAMAGE);
+    }
+};
+
+// Tells the scenario when a player is done with (or skipped) its movies and scenes.
+class lordaeron_player_script : public PlayerScript
+{
+public:
+    lordaeron_player_script() : PlayerScript("lordaeron_player_script") { }
+
+    static InstanceScript* Scenario(Player* player)
+    {
+        return player->GetMapId() == MAP_LORDAERON_SCENARIO ? player->GetInstanceScript() : nullptr;
+    }
+
+    void OnMovieComplete(Player* player, uint32 movieId) override
+    {
+        if (InstanceScript* instance = Scenario(player))
+            instance->SetData(DATA_MOVIE_COMPLETE, movieId);
+    }
+
+    void OnSceneComplete(Player* player, uint32 sceneInstanceId) override
+    {
+        SceneEnded(player, sceneInstanceId);
+    }
+
+    void OnSceneCancel(Player* player, uint32 sceneInstanceId) override
+    {
+        SceneEnded(player, sceneInstanceId);
+    }
+
+    static void SceneEnded(Player* player, uint32 sceneInstanceId)
+    {
+        InstanceScript* instance = Scenario(player);
+        if (!instance)
+            return;
+        if (SceneTemplate const* scene = player->GetSceneMgr().GetSceneTemplateFromInstanceId(sceneInstanceId))
+            instance->SetData(DATA_SCENE_COMPLETE, scene->SceneId);
+    }
+};
+
+// .lordaeron step <2-13>: test command, skips forward to a step of the Horde scenario.
+// 2 Spies in Our Midst, 3 To the Heart!, 4 Evacuate the Heart of the City, 5 To Battle!,
+// 6 Push Them Back, 7 Defend the Azerite War Machine, 8 Our Secret Weapon, 9 Like Wildfire,
+// 10 Holding Them Back, 11 The King Piece, 12 Cry Havoc, 13 The Dark Lady
 class lordaeron_commandscript : public CommandScript
 {
 public:
@@ -1160,9 +2356,10 @@ public:
     {
         Player* player = handler->GetSession()->GetPlayer();
         uint32 number = (args && *args) ? uint32(atoi(args)) : 0;
-        if (number < 2 || number > 5)
+        if (number < 2 || number > 13)
         {
-            handler->SendSysMessage("Usage: .lordaeron step <2-5>  (2 Spies, 3 To the Heart, 4 Evacuate, 5 To Battle)");
+            handler->SendSysMessage("Usage: .lordaeron step <2-13>  (2 Spies, 3 To the Heart, 4 Evacuate, 5 To Battle, 6 Push Them Back, "
+                "7 War Machine, 8 Secret Weapon, 9 Like Wildfire, 10 Holding Them Back, 11 King Piece, 12 Cry Havoc, 13 Dark Lady)");
             return true;
         }
 
@@ -1183,5 +2380,8 @@ void AddSC_scenario_the_battle_for_lordaeron()
 {
     new lordaeron_commandscript();
     new npc_lordaeron_undercity_citizen();
+    new npc_lordaeron_sludge_guard_trizz();
+    new lordaeron_player_script();
+    RegisterSpellScript(spell_lordaeron_blight_spray);
     RegisterInstanceScript(scenario_the_battle_for_lordaeron, MAP_LORDAERON_SCENARIO);
 }
