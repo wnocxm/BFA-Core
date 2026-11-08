@@ -103,17 +103,50 @@ namespace
     constexpr Milliseconds CHAMPIONS_BEAR_WITNESS = 64649ms; // CONVERSATION_FINALLY_SHOW_UP last line
     constexpr uint32 KING_PIECE_HALFWAY         = 75;      // of 150: Lor'themar's "Their assault will soon falter"
 
-    std::vector<Position> const NathanosRouteToSide = { { 1804.60f, 180.64f, 61.0f, 0.0f } };
+    // The road south of the keep, from the courtyard to the chokepoint west of the keep: guide
+    // points with the line of plague gas clouds of the Alliance-view sniff in between (ground ~61).
+    std::vector<Position> const NathanosRouteToSide = { { 1804.60f, 180.64f, 61.5f, 0.0f } };
     std::vector<Position> const NathanosRouteToFlank =
     {
-        { 1792.30f, 142.40f, 61.0f, 0.0f },
-        { 1741.90f, 122.10f, 61.0f, 0.0f },
-        { 1603.50f, 130.90f, 61.0f, 0.0f },
+        { 1792.30f, 142.40f, 61.5f, 0.0f },
+        { 1741.90f, 122.10f, 61.5f, 0.0f },
+        { 1684.30f, 124.10f, 61.5f, 0.0f },
+        { 1626.60f, 131.40f, 61.5f, 0.0f },
+        { 1603.50f, 130.90f, 61.5f, 0.0f },
     };
-    std::vector<Position> const NathanosRouteToChokepoint = { { 1449.20f, 258.60f, 61.7f, 0.0f } };
-    std::vector<Position> const NathanosRetreatLeg1 = { { 1558.42f, 123.92f, 61.0f, 0.0f }, { 1741.90f, 122.10f, 61.0f, 0.0f } };
-    std::vector<Position> const NathanosRetreatLeg2 = { { 1806.80f, 158.20f, 61.0f, 0.0f } };
-    std::vector<Position> const NathanosRetreatLeg3 = { { 1780.90f, 238.30f, 61.0f, 0.0f } };
+    std::vector<Position> const NathanosRouteToChokepoint =
+    {
+        { 1556.30f, 120.30f, 61.5f, 0.0f },
+        { 1529.80f, 126.10f, 61.5f, 0.0f },
+        { 1500.00f, 140.00f, 61.5f, 0.0f },
+        { 1483.00f, 160.00f, 61.5f, 0.0f },
+        { 1470.00f, 190.00f, 61.5f, 0.0f },
+        { 1460.00f, 225.00f, 61.5f, 0.0f },
+        { 1449.20f, 258.60f, 61.7f, 0.0f },
+    };
+    // Cry Havoc: the same road back.
+    std::vector<Position> const NathanosRetreatLeg1 =
+    {
+        { 1460.00f, 225.00f, 61.5f, 0.0f },
+        { 1470.00f, 190.00f, 61.5f, 0.0f },
+        { 1483.00f, 160.00f, 61.5f, 0.0f },
+        { 1500.00f, 140.00f, 61.5f, 0.0f },
+        { 1529.80f, 126.10f, 61.5f, 0.0f },
+        { 1558.42f, 123.92f, 61.5f, 0.0f },
+        { 1603.50f, 130.90f, 61.5f, 0.0f },
+        { 1684.30f, 124.10f, 61.5f, 0.0f },
+        { 1741.90f, 122.10f, 61.5f, 0.0f }, // "Keep moving!"
+    };
+    std::vector<Position> const NathanosRetreatLeg2 =
+    {
+        { 1792.30f, 142.40f, 61.5f, 0.0f },
+        { 1806.80f, 158.20f, 61.5f, 0.0f }, // "We're almost there!"
+    };
+    std::vector<Position> const NathanosRetreatLeg3 =
+    {
+        { 1804.60f, 180.64f, 61.5f, 0.0f },
+        { 1780.90f, 238.30f, 61.0f, 0.0f },
+    };
 
     // Static spawns that only belong to the Alliance scenario's view of the battle (any guid):
     // the Horde scenario summons its own. Only spawns on the surface (z > 0) are affected,
@@ -1199,6 +1232,9 @@ private:
         DespawnAll(_armyDecor);
         DespawnAll(_waveUnits);
         DespawnAll(_phase2Npcs);
+        DespawnAll(_roadReserves);
+        _chokepointAllies.clear();
+        _chokepointEnemies.clear();
         _marchTargets.clear();
         _armyPost.clear();
         _armyTarget.clear();
@@ -1468,7 +1504,10 @@ private:
             TC_LOG_INFO("scripts", "Battle for Lordaeron: Alliance reinforcements arrive (summon group %u, step %u)", uint32(groupId), stepId);
             GuidSet soldiers = SummonArmy(groupId, true);
             if (groupId == SUMMON_GROUP_CHOKEPOINT_ALLIANCE)
+            {
                 MarchTo(soldiers, AllianceMarchTarget);
+                Merge(_chokepointEnemies, soldiers);
+            }
             Merge(_armyEnemies, soldiers);
         });
     }
@@ -1594,8 +1633,7 @@ private:
                 break;
             case EscortEnd::NathanosAtChokepoint:
                 // The reserves take position; "Soldiers, fall into position!"
-                if (_armyAllies.empty())
-                    Merge(_armyAllies, SummonArmy(SUMMON_GROUP_CHOKEPOINT_HORDE, false));
+                SummonChokepointArmy();
                 StartConversationNear(CONVERSATION_BLIGHT_THROWERS, creature);
                 _scheduler.Schedule(BLIGHT_THROWERS_LENGTH, [this](TaskContext /*context*/)
                 {
@@ -1807,7 +1845,12 @@ private:
     // the courtyard, where Nathanos takes the reserves to the chokepoint.
     void StartLikeWildfire()
     {
-        DespawnArmies();
+        // The battle outside the gates goes on; Trizz, the War Machine and the waves are done.
+        DespawnAll(_waveUnits);
+        DespawnAll(_phase2Npcs);
+        _escorts.clear();
+        _arrivalCredits.clear();
+        _waveActive = false;
         if (Creature* saurfang = GetSaurfang())
             saurfang->DespawnOrUnsummon();
         _saurfangGuid.Clear();
@@ -1853,6 +1896,10 @@ private:
             _baineGuid = baine->GetGUID();
         if (Creature* nathanos = SummonLeader(NPC_NATHANOS, NathanosCourtyard))
             _nathanosGuid = nathanos->GetGUID();
+
+        // The reserves: posts along the road south of the keep and the army at the chokepoint.
+        SummonRoadReserves();
+        SummonChokepointArmy();
 
         StartConversationNear(CONVERSATION_CUT_THEM_OFF, sylvanas);
         _scheduler.Schedule(HEROES_FOLLOW_ME, [this](TaskContext /*context*/)
@@ -1913,8 +1960,33 @@ private:
                 _lorthemarGuid = lorthemar->GetGUID();
         }
 
-        if (_armyAllies.empty())
-            Merge(_armyAllies, SummonArmy(SUMMON_GROUP_CHOKEPOINT_HORDE, false));
+        SummonChokepointArmy();
+        if (_roadReserves.empty())
+            SummonRoadReserves();
+    }
+
+    void SummonChokepointArmy()
+    {
+        if (!_chokepointAllies.empty())
+            return;
+        _chokepointAllies = SummonArmy(SUMMON_GROUP_CHOKEPOINT_HORDE, false);
+        Merge(_armyAllies, _chokepointAllies);
+    }
+
+    // Horde soldiers posted along the road; they hold their posts and do not join the fights.
+    void SummonRoadReserves()
+    {
+        if (!_roadReserves.empty())
+            return;
+        for (ObjectGuid const& guid : SummonGroup(SUMMON_GROUP_ROAD_RESERVES))
+        {
+            if (Creature* soldier = instance->GetCreature(guid))
+            {
+                soldier->SetFaction(FACTION_SCENARIO_ALLY);
+                soldier->SetReactState(REACT_DEFENSIVE);
+                _roadReserves.insert(guid);
+            }
+        }
     }
 
     void SummonVoidTear()
@@ -1955,6 +2027,7 @@ private:
                 soldier->SetReactState(REACT_AGGRESSIVE);
         MarchTo(_heldEnemies, AllianceMarchTarget);
         Merge(_armyEnemies, _heldEnemies);
+        Merge(_chokepointEnemies, _heldEnemies);
         _heldEnemies.clear();
     }
 
@@ -1985,11 +2058,11 @@ private:
         });
         _scheduler.Schedule(7s, [this, sylvanasGuid](TaskContext /*context*/)
         {
-            // The blight swallows the battlefield.
-            DespawnAll(_armyEnemies);
+            // The blight swallows the chokepoint; the battle outside the gates goes on.
+            DespawnAll(_chokepointEnemies);
             DespawnAll(_heldEnemies);
             DespawnAll(_allianceLeaders);
-            DespawnAll(_armyAllies);
+            DespawnAll(_chokepointAllies);
             StartConversationNear(CONVERSATION_FOLLOW_NATHANOS, instance->GetCreature(sylvanasGuid));
             StartEscort(instance->GetCreature(_nathanosGuid), NathanosRetreatLeg1, EscortEnd::NathanosRetreatLeg1, true);
             if (Creature* lorthemar = instance->GetCreature(_lorthemarGuid))
@@ -2353,6 +2426,9 @@ private:
     std::map<ObjectGuid, Position> _armyPost;      // where a soldier holds
     std::map<ObjectGuid, ObjectGuid> _armyTarget;  // the opponent it fights
     GuidSet _rescuedWounded;
+    GuidSet _roadReserves;
+    GuidSet _chokepointAllies;
+    GuidSet _chokepointEnemies;
     std::vector<Escort> _escorts;
     std::vector<ArrivalCredit> _arrivalCredits;
     std::vector<Position> _phase2SaurfangRoute;

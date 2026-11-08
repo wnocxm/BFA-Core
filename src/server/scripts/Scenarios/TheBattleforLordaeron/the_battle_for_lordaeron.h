@@ -269,6 +269,7 @@ enum BattleForLordaeronSummonGroups
     SUMMON_GROUP_CHOKEPOINT_ALLIANCE    = 16,
     SUMMON_GROUP_VOID_TEAR              = 17, // Ren'dorei rangers and Flametrons with Alleria
     SUMMON_GROUP_KEEP_WALLS             = 18, // dark rangers and blight throwers on the walls
+    SUMMON_GROUP_ROAD_RESERVES          = 19, // Horde reserves along the road south of the keep
 };
 
 enum BattleForLordaeronData
