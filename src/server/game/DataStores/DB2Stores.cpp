@@ -16,6 +16,7 @@
  */
 
 #include "DB2Stores.h"
+#include "ProgressionMgr.h"
 #include "Containers.h"
 #include "DatabaseEnv.h"
 #include "DB2LoadInfo.h"
@@ -429,7 +430,7 @@ namespace
     CurvePointsContainer _curvePoints;
     EmotesTextSoundContainer _emoteTextSounds;
     std::unordered_map<std::pair<uint32 /*level*/, int32 /*expansion*/>, ExpectedStatEntry const*> _expectedStatsByLevel;
-    std::unordered_map<uint32 /*contentTuningId*/, std::vector<ExpectedStatModEntry const*>> _expectedStatModsByContentTuning;
+    std::unordered_map<uint32 /*contentTuningId*/, std::vector<std::pair<int32 /*mythicPlusSeasonId*/, ExpectedStatModEntry const*>>> _expectedStatModsByContentTuning;
     FactionTeamContainer _factionTeams;
     HeirloomItemsContainer _heirlooms;
     GlyphBindableSpellsContainer _glyphBindableSpells;
@@ -1041,7 +1042,7 @@ uint32 DB2Manager::LoadStores(std::string const& dataPath, LocaleConstant defaul
 
     for (ContentTuningXExpectedEntry const* contentTuningXExpectedStat : sContentTuningXExpectedStore)
         if (ExpectedStatModEntry const* expectedStatMod = sExpectedStatModStore.LookupEntry(contentTuningXExpectedStat->ExpectedStatModID))
-            _expectedStatModsByContentTuning[contentTuningXExpectedStat->ContentTuningID].push_back(expectedStatMod);
+            _expectedStatModsByContentTuning[contentTuningXExpectedStat->ContentTuningID].emplace_back(contentTuningXExpectedStat->MythicPlusSeasonID, expectedStatMod);
 
     for (CurvePointEntry const* curvePoint : sCurvePointStore)
         if (sCurveStore.LookupEntry(curvePoint->CurveID))
@@ -2025,7 +2026,19 @@ float DB2Manager::EvaluateExpectedStat(ExpectedStatType stat, uint32 level, int3
         break;
     }
 
-    std::vector<ExpectedStatModEntry const*> const* contentTuningMods = Trinity::Containers::MapGetValuePtr(_expectedStatModsByContentTuning, contentTuningId);
+    // On progressive realms only the mods of the live Mythic+ season (and the ones of no season) are used
+    std::vector<ExpectedStatModEntry const*> seasonMods;
+    std::vector<ExpectedStatModEntry const*> const* contentTuningMods = nullptr;
+    if (auto const* allMods = Trinity::Containers::MapGetValuePtr(_expectedStatModsByContentTuning, contentTuningId))
+    {
+        bool filterBySeason = sProgressionMgr->IsEnabled();
+        int32 season = int32(sProgressionMgr->GetMythicPlusSeason());
+        for (auto const& seasonMod : *allMods)
+            if (!filterBySeason || !seasonMod.first || seasonMod.first == season)
+                seasonMods.push_back(seasonMod.second);
+
+        contentTuningMods = &seasonMods;
+    }
     float value = 0.0f;
     switch (stat)
     {

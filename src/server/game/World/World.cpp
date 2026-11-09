@@ -20,6 +20,7 @@
 */
 
 #include "World.h"
+#include "ProgressionMgr.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "ArchaeologyMgr.h"
@@ -2033,6 +2034,9 @@ void World::SetInitialWorldSettings()
 
     TC_LOG_INFO("server.loading", "Loading World States...");              // must be loaded before battleground, outdoor PvP and conditions
     LoadWorldStates();
+
+    TC_LOG_INFO("server.loading", "Loading Progression...");          // must be after world states
+    sProgressionMgr->Initialize();
 
     sObjectMgr->LoadPhases();
 

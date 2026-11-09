@@ -563,6 +563,9 @@ enum WorldStates
     WS_CHALLENGE_AFFIXE2_RESET_TIME     = 20017,                      // Challenge Affixe 2
     WS_CHALLENGE_AFFIXE3_RESET_TIME     = 20018,                      // Challenge Affixe 3
     WS_MONTHLY_QUEST_RESET_TIME = 20007,                     // Next monthly reset time
+    WS_PROGRESSION_PATCH                    = 20100,          // Live content patch (ProgressionMgr), e.g. 80001
+    WS_PROGRESSION_PATCH_START_TIME         = 20101,          // Time the live content patch was opened
+    WS_PROGRESSION_AZERITE_KNOWLEDGE_START  = 20102,          // Time the Heart of Azeroth catch-up opened
     // Cata specific custom worldstates
     WS_GUILD_WEEKLY_RESET_TIME  = 20050,                     // Next guild week reset time
 };

@@ -16,6 +16,7 @@
  */
 
 #include "ChallengeModeMgr.h"
+#include "ProgressionMgr.h"
 #include "Containers.h"
 #include "DB2Stores.h"
 #include "GameTables.h"
@@ -618,8 +619,14 @@ std::vector<int32> ChallengeModeMgr::GetBonusListIdsForRewards(uint32 baseItemIl
         { 3535, 55 },   // Mythic 15
     };
 
-    const uint32 baseMythicIlevel = 885;
     std::pair<int32, uint32> bonusAndDeltaPair = bonusDescriptionByChallengeLevel[challengeLevel < 15 ? (challengeLevel - 2): 13];
+
+    // Item level of the live Mythic+ season (`progression_mythic_plus`)
+    ProgressionMythicPlusItemLevel seasonItemLevels;
+    if (sProgressionMgr->GetMythicPlusItemLevel(challengeLevel, seasonItemLevels) && seasonItemLevels.EndOfRun)
+        return { bonusAndDeltaPair.first, (int32)sDB2Manager.GetItemBonusListForItemLevelDelta(int16(int32(seasonItemLevels.EndOfRun) - int32(baseItemIlevel))) };
+
+    const uint32 baseMythicIlevel = 885;
     return { bonusAndDeltaPair.first, (int32)sDB2Manager.GetItemBonusListForItemLevelDelta(baseMythicIlevel - baseItemIlevel + bonusAndDeltaPair.second) };
 }
 

@@ -16,6 +16,7 @@
  */
 
 #include "Unit.h"
+#include "ProgressionMgr.h"
 #include "DB2Stores.h"
 #include "Item.h"
 #include "Log.h"
@@ -735,6 +736,8 @@ void Player::UpdateSpellCritChance()
 void Player::UpdateCorruption()
 {
     float effectiveCorruption = GetRatingBonusValue(CR_CORRUPTION) - GetRatingBonusValue(CR_CORRUPTION_RESISTANCE);
+    if (!sProgressionMgr->IsFeatureAvailable(PROGRESSION_FEATURE_CORRUPTION))
+        effectiveCorruption = 0.0f;
     for (CorruptionEffectsEntry const* corruptionEffect : sCorruptionEffectsStore)
     {
         if ((CorruptionEffectsFlag(corruptionEffect->Flags) & CorruptionEffectsFlag::Disabled) != CorruptionEffectsFlag::None)

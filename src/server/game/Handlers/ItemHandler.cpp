@@ -30,6 +30,7 @@
 #include "Player.h"
 #include "SpellMgr.h"
 #include "WorldSession.h"
+#include "ProgressionMgr.h"
 
 void WorldSession::HandleSplitItemOpcode(WorldPackets::Item::SplitItem& splitItem)
 {
@@ -644,6 +645,10 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid)
 
                 // Items sold out are not displayed in list
                 if (leftInStock == 0)
+                    continue;
+
+                // Items of content that is not open in the live patch
+                if (!sProgressionMgr->IsItemAvailable(vendorItem->item))
                     continue;
             }
 

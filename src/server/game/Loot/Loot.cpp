@@ -16,6 +16,7 @@
  */
 
 #include "Loot.h"
+#include "ProgressionMgr.h"
 #include "Containers.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
@@ -243,11 +244,13 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
     if (!lootOwner)
         return false;
 
-    _itemContext = lootOwner->GetMap()->GetDifficultyLootItemContext();
+    _itemContext = context;
 
-    if (LFGDungeonsEntry const* dungeonEntry = sLFGMgr->GetPlayerLFGDungeonEntry(lootOwner->GetGUID()))
-        if (dungeonEntry->Flags[0] & lfg::LfgFlags::LFG_FLAG_TIMEWALKER)
-            _itemContext = ItemContext::TimeWalker;
+    // Timewalking loot keeps its own context (this check used to be overwritten right after it ran)
+    if (_itemContext != ItemContext::NONE)
+        if (LFGDungeonsEntry const* dungeonEntry = sLFGMgr->GetPlayerLFGDungeonEntry(lootOwner->GetGUID()))
+            if (dungeonEntry->Flags[0] & lfg::LfgFlags::LFG_FLAG_TIMEWALKER)
+                _itemContext = ItemContext::TimeWalker;
 
     LootTemplate const* tab = store.GetLootFor(lootId);
 
@@ -258,7 +261,6 @@ bool Loot::FillLoot(uint32 lootId, LootStore const& store, Player* lootOwner, bo
         return false;
     }
 
-    _itemContext = context;
     items.reserve(MAX_NR_LOOT_ITEMS);
 
     tab->Process(*this, store.IsRatesAllowed(), lootMode, 0, lootOwner, specOnly);          // Processing is done there, callback via Loot::AddItem()
@@ -284,6 +286,10 @@ void Loot::AddItem(LootStoreItem const& item, Player const* player /*= nullptr*/
     if (!proto)
         return;
 
+    // items of content that is not open in the live patch do not drop
+    if (!sProgressionMgr->IsItemAvailable(item.itemid))
+        return;
+
     // If this loot should be filtered by specialization, check player spec before adding
     if (specOnly && player)
         if (!proto->IsUsableByLootSpecialization(player, false))
@@ -304,6 +310,10 @@ void Loot::AddItem(LootStoreItem const& item, Player const* player /*= nullptr*/
             std::set<uint32> bonusListIDs = sDB2Manager.GetDefaultItemBonusTree(generatedLoot.itemid, _itemContext);
             generatedLoot.BonusListIDs.insert(generatedLoot.BonusListIDs.end(), bonusListIDs.begin(), bonusListIDs.end());
         }
+
+        // item level of the live content patch for this map and difficulty
+        if (Map const* map = player->GetMap())
+            sProgressionMgr->AdjustLootItemLevel(generatedLoot.itemid, map->GetId(), map->GetDifficultyID(), generatedLoot.BonusListIDs);
 
         items[player->GetGUID()].push_back(generatedLoot);
         count -= proto->GetMaxStackSize();

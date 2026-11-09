@@ -16,6 +16,7 @@
  */
 
 #include "LFGMgr.h"
+#include "ProgressionMgr.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
 #include "DisableMgr.h"
@@ -1724,6 +1725,8 @@ LfgLockMap LFGMgr::GetLockedDungeons(ObjectGuid guid)
         else if (dungeon->expansion > expansion)
             lockStatus = LFG_LOCKSTATUS_INSUFFICIENT_EXPANSION;
         else if (DisableMgr::IsDisabledFor(DISABLE_TYPE_MAP, dungeon->map, player))
+            lockStatus = LFG_LOCKSTATUS_NOT_IN_SEASON;
+        else if (!sProgressionMgr->IsMapAvailable(dungeon->map) || !sProgressionMgr->IsAvailable(PROGRESSION_CONTENT_LFG_DUNGEON, dungeon->id))
             lockStatus = LFG_LOCKSTATUS_NOT_IN_SEASON;
         else if (DisableMgr::IsDisabledFor(DISABLE_TYPE_LFG_MAP, dungeon->map, player))
             lockStatus = LFG_LOCKSTATUS_RAID_LOCKED;

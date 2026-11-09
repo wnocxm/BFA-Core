@@ -16,6 +16,7 @@
  */
 
 #include "AzeriteItem.h"
+#include "ProgressionMgr.h"
 #include "AzeritePackets.h"
 #include "DatabaseEnv.h"
 #include "DB2Stores.h"
@@ -212,6 +213,10 @@ void AzeriteItem::DeleteFromDB(CharacterDatabaseTransaction& trans)
 
 uint32 AzeriteItem::GetCurrentKnowledgeLevel()
 {
+    // progressive realms count weeks from the day the catch-up opened
+    if (sProgressionMgr->IsEnabled())
+        return sProgressionMgr->GetAzeriteKnowledgeWeeks(MAX_AZERITE_ITEM_KNOWLEDGE_LEVEL);
+
     // count weeks from 14.01.2020
     boost::gregorian::date now = boost::posix_time::from_time_t(GameTime::GetGameTime()).date();
     boost::gregorian::week_iterator itr(boost::gregorian::date(2020, boost::date_time::Jan, 14));
@@ -235,7 +240,8 @@ void AzeriteItem::GiveXP(uint64 xp)
 {
     Player* owner = GetOwner();
     uint32 level = m_azeriteItemData->Level;
-    if (level < MAX_AZERITE_ITEM_LEVEL)
+    uint32 const maxLevel = sProgressionMgr->GetAzeriteLevelCap(MAX_AZERITE_ITEM_LEVEL);
+    if (level < maxLevel)
     {
         uint64 currentXP = m_azeriteItemData->Xp;
         uint64 remainingXP = xp;
@@ -254,7 +260,7 @@ void AzeriteItem::GiveXP(uint64 xp)
                 currentXP += remainingXP;
                 remainingXP = 0;
             }
-        } while (remainingXP > 0 && level < MAX_AZERITE_ITEM_LEVEL);
+        } while (remainingXP > 0 && level < maxLevel);
 
         SetUpdateFieldValue(m_values.ModifyValue(&AzeriteItem::m_azeriteItemData).ModifyValue(&UF::AzeriteItemData::Xp), currentXP);
 
@@ -294,6 +300,9 @@ GameObject const* AzeriteItem::FindHeartForge(Player const* owner)
 
 bool AzeriteItem::CanUseEssences() const
 {
+    if (!sProgressionMgr->IsFeatureAvailable(PROGRESSION_FEATURE_AZERITE_ESSENCES))
+        return false;
+
     if (PlayerConditionEntry const* condition = sPlayerConditionStore.LookupEntry(PLAYER_CONDITION_ID_UNLOCKED_AZERITE_ESSENCES))
         return ConditionMgr::IsPlayerMeetingCondition(GetOwner(), condition);
 
@@ -488,6 +497,10 @@ void AzeriteItem::ClearUpdateMask(bool remove)
 
 void AzeriteItem::UnlockDefaultMilestones()
 {
+    // essence slots open with the essence patch
+    if (!sProgressionMgr->IsFeatureAvailable(PROGRESSION_FEATURE_AZERITE_ESSENCES))
+        return;
+
     bool hasPreviousMilestone = true;
     for (AzeriteItemMilestonePowerEntry const* milestone : sDB2Manager.GetAzeriteItemMilestonePowers())
     {

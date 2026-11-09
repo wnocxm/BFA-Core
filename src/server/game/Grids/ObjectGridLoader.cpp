@@ -18,6 +18,7 @@
 #include "ObjectGridLoader.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "ProgressionMgr.h"
 #include "Creature.h"
 #include "GameObject.h"
 #include "DynamicObject.h"
@@ -115,13 +116,26 @@ void AddObjectHelper(CellCoord &cell, CreatureMapType &m, uint32 &count, Map* ma
     ++count;
 }
 
+// spawns of content that is not open in the live patch are not loaded
+template <class T>
+inline bool IsSpawnOpenInProgression(ObjectGuid::LowType /*guid*/) { return true; }
+
+template <>
+inline bool IsSpawnOpenInProgression<Creature>(ObjectGuid::LowType guid) { return sProgressionMgr->IsCreatureSpawnAvailable(guid); }
+
+template <>
+inline bool IsSpawnOpenInProgression<GameObject>(ObjectGuid::LowType guid) { return sProgressionMgr->IsGameObjectSpawnAvailable(guid); }
+
 template <class T>
 void LoadHelper(CellGuidSet const& guid_set, CellCoord &cell, GridRefManager<T> &m, uint32 &count, Map* map)
 {
     for (CellGuidSet::const_iterator i_guid = guid_set.begin(); i_guid != guid_set.end(); ++i_guid)
     {
-        T* obj = new T;
         ObjectGuid::LowType guid = *i_guid;
+        if (!IsSpawnOpenInProgression<T>(guid))
+            continue;
+
+        T* obj = new T;
         //TC_LOG_INFO("misc", "DEBUG: LoadHelper from table: %s for (guid: %u) Loading", table, guid);
         if (!obj->LoadFromDB(guid, map))
         {

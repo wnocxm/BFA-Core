@@ -694,6 +694,27 @@ DeclinedNames = 0
 Expansion = 8
 
 #
+#    Progression.Enable
+#        Description: Progressive realm. Content opens patch by patch (8.0.1 -> 8.1.5 -> 8.2.5 -> 8.3.7)
+#                     while players keep the 8.3.7 client. Rules are in the world tables
+#                     progression_patch, progression_content, progression_item_level and
+#                     progression_mythic_plus. Change the live patch in game with
+#                     .progression next or .progression set 8.1.5
+#        Default:     0 - (Disabled, all content is open)
+#                     1 - (Enabled)
+
+Progression.Enable = 0
+
+#
+#    Progression.StartPatch
+#        Description: Content patch used the first time progression starts. After that the live
+#                     patch is saved in the worldstates table (20100) and this option is ignored.
+#        Example:     "8.1.5"
+#        Default:     "8.0.1"
+
+Progression.StartPatch = "8.0.1"
+
+#
 #    MinPlayerName
 #        Description: Minimal player name length.
 #        Range:       1-12

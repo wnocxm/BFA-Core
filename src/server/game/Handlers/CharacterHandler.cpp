@@ -16,6 +16,7 @@
  */
 
 #include "WorldSession.h"
+#include "ProgressionMgr.h"
 #include "AccountMgr.h"
 #include "ArtifactPackets.h"
 #include "AuctionHousePackets.h"
@@ -389,6 +390,9 @@ void WorldSession::HandleCharEnum(PreparedQueryResult result)
         raceUnlock.RaceID = requirement.first;
         raceUnlock.HasExpansion = GetAccountExpansion() >= requirement.second.Expansion;
         raceUnlock.HasAchievement = requirement.second.AchievementId == 0 /*|| HasAchievement(requirement.second.AchievementId)*/;
+        // races of a later content patch show as locked
+        if (!sProgressionMgr->IsRaceAvailable(requirement.first))
+            raceUnlock.HasAchievement = false;
         charEnum.RaceUnlockData.push_back(raceUnlock);
     }
 
@@ -505,6 +509,12 @@ void WorldSession::HandleCharCreateOpcode(WorldPackets::Character::CreateCharact
     {
         TC_LOG_ERROR("entities.player.cheat", "Account %u tried to create character with unavailable race %u", GetAccountId(), charCreate.CreateInfo->Race);
         SendCharCreate(CHAR_CREATE_FAILED);
+        return;
+    }
+
+    if (!HasPermission(rbac::RBAC_PERM_SKIP_CHECK_CHARACTER_CREATION_RACEMASK) && !sProgressionMgr->IsRaceAvailable(charCreate.CreateInfo->Race))
+    {
+        SendCharCreate(CHAR_CREATE_DISABLED);
         return;
     }
 
@@ -980,16 +990,8 @@ void WorldSession::HandlePlayerLogin(LoginQueryHolder* holder)
 
     SendSetTimeZoneInformation();
 
-    // Send PVPSeason
-    {
-        WorldPackets::Battleground::SeasonInfo seasonInfo;
-        seasonInfo.PreviousSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID) - sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS);
-
-        if (sWorld->getBoolConfig(CONFIG_ARENA_SEASON_IN_PROGRESS))
-            seasonInfo.CurrentSeason = sWorld->getIntConfig(CONFIG_ARENA_SEASON_ID);
-
-        SendPacket(seasonInfo.Write());
-    }
+    // Send PvP and Mythic+ season
+    sProgressionMgr->SendSeasonInfo(pCurrChar);
 
     // send server info
     {
@@ -1887,6 +1889,12 @@ void WorldSession::HandleCharRaceOrFactionChangeCallback(std::shared_ptr<WorldPa
     if (oldTeamId == TEAM_NEUTRAL)
     {
         SendCharFactionChange(CHAR_CREATE_RESTRICTED_RACECLASS, factionChangeInfo.get());
+        return;
+    }
+
+    if (!HasPermission(rbac::RBAC_PERM_SKIP_CHECK_CHARACTER_CREATION_RACEMASK) && !sProgressionMgr->IsRaceAvailable(factionChangeInfo->RaceID))
+    {
+        SendCharFactionChange(CHAR_CREATE_DISABLED, factionChangeInfo.get());
         return;
     }
 
