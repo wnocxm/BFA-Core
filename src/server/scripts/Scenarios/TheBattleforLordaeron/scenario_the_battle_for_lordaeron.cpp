@@ -102,7 +102,8 @@ namespace
     constexpr Milliseconds HOLD_YOUR_GROUND     = 24889ms; // CONVERSATION_OUTNUMBERED "ALLIANCE, HOLD YOUR GROUND!"
     constexpr Milliseconds OUTNUMBERED_LENGTH   = 28828ms;
     constexpr Milliseconds CHAMPIONS_BEAR_WITNESS = 64649ms; // CONVERSATION_FINALLY_SHOW_UP last line
-    constexpr uint32 KING_PIECE_HALFWAY         = 75;      // of 150: Lor'themar's "Their assault will soon falter"
+    constexpr uint32 KING_PIECE_HALFWAY         = 75;
+    constexpr uint32 PHASE2_TASKS               = 2;       // scheduler group of steps 6-13 (cancelled by .lordaeron step)      // of 150: Lor'themar's "Their assault will soon falter"
 
     // The road south of the keep, from the courtyard to the chokepoint west of the keep: guide
     // points with the line of plague gas clouds of the Alliance-view sniff in between (ground ~61).
@@ -1567,7 +1568,7 @@ private:
         if (!_pendingReinforcements.insert(groupId).second)
             return;
 
-        _scheduler.Schedule(REINFORCEMENTS_DELAY, [this, stepId, groupId](TaskContext /*context*/)
+        _scheduler.Schedule(REINFORCEMENTS_DELAY, PHASE2_TASKS, [this, stepId, groupId](TaskContext /*context*/)
         {
             _pendingReinforcements.erase(groupId);
             if (GetCurrentStepId() != stepId)
@@ -1601,8 +1602,10 @@ private:
     // ---- Escorts -------------------------------------------------------------------------
 
     // A route set in game (waypoint_data, .wp add / .wp reload) wins over the one written here.
-    std::vector<Position> Route(uint32 pathId, std::vector<Position> const& fallback) const
+    std::vector<Position> Route(uint32 pathId, std::vector<Position> const& fallback)
     {
+        // Read again every time, so a route drawn with .wp add is used without .wp reload.
+        sWaypointMgr->ReloadPath(pathId);
         WaypointPath const* path = sWaypointMgr->GetPath(pathId);
         if (!path || path->empty())
             return fallback;
@@ -1726,7 +1729,7 @@ private:
             case EscortEnd::NathanosAtSide:
                 // Nathanos sends Baine away, then leads the players to Lor'themar.
                 StartConversationNear(CONVERSATION_NATHANOS_BAINE, creature);
-                _scheduler.Schedule(CHAMPIONS_WITH_ME, [this](TaskContext /*context*/)
+                _scheduler.Schedule(CHAMPIONS_WITH_ME, PHASE2_TASKS, [this](TaskContext /*context*/)
                 {
                     StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_LORTHEMAR, NathanosRouteToFlank), EscortEnd::NathanosAtFlank, true);
                     StartEscort(instance->GetCreature(_baineGuid), { BaineCourtyard }, EscortEnd::None, false);
@@ -1737,7 +1740,7 @@ private:
                 break;
             case EscortEnd::NathanosAtFlank:
                 StartConversationNear(CONVERSATION_NATHANOS_LORTHEMAR, creature);
-                _scheduler.Schedule(WITH_PLEASURE, [this](TaskContext /*context*/)
+                _scheduler.Schedule(WITH_PLEASURE, PHASE2_TASKS, [this](TaskContext /*context*/)
                 {
                     StartEscort(instance->GetCreature(_lorthemarGuid), Route(PATH_LORTHEMAR_TO_CHOKEPOINT, { LorthemarChokepoint }), EscortEnd::None, false);
                     StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_CHOKEPOINT, NathanosRouteToChokepoint), EscortEnd::NathanosAtChokepoint, true);
@@ -1748,7 +1751,7 @@ private:
                 SummonChokepointArmy();
                 StartConversationNear(CONVERSATION_BLIGHT_THROWERS, creature);
                 SpreadChokepointSwath();
-                _scheduler.Schedule(BLIGHT_THROWERS_LENGTH, [this](TaskContext /*context*/)
+                _scheduler.Schedule(BLIGHT_THROWERS_LENGTH, PHASE2_TASKS, [this](TaskContext /*context*/)
                 {
                     if (Creature* nathanos = instance->GetCreature(_nathanosGuid))
                     {
@@ -1826,7 +1829,7 @@ private:
         StartSaurfangRoute(_phase2SaurfangRoute, SaurfangRouteEnd::WarMachine);
 
         _waveNumber = 0;
-        _scheduler.Schedule(WAR_MACHINE_ARRIVES_LENGTH, [this](TaskContext /*context*/)
+        _scheduler.Schedule(WAR_MACHINE_ARRIVES_LENGTH, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             SpawnWave(1);
         });
@@ -1877,7 +1880,7 @@ private:
 
         StartConversationNear(waveConversations[number - 1], leader);
         if (number == 1)
-            _scheduler.Schedule(6s, [this](TaskContext /*context*/)
+            _scheduler.Schedule(6s, PHASE2_TASKS, [this](TaskContext /*context*/)
             {
                 StartConversationNear(CONVERSATION_BLAST_THE_TOWERS, GetSaurfang());
             });
@@ -1892,7 +1895,7 @@ private:
         if (_waveNumber < 3)
         {
             uint32 next = _waveNumber + 1;
-            _scheduler.Schedule(NEXT_WAVE_DELAY, [this, next](TaskContext /*context*/)
+            _scheduler.Schedule(NEXT_WAVE_DELAY, PHASE2_TASKS, [this, next](TaskContext /*context*/)
             {
                 SpawnWave(next);
             });
@@ -1913,7 +1916,7 @@ private:
         _blightSceneStage = 0;
 
         PlaySceneForPlayers(SCENE_WAR_MACHINE_DESTROYED);
-        _scheduler.Schedule(SCENE_FALLBACK, [this](TaskContext /*context*/) { OnWarMachineSceneDone(); });
+        _scheduler.Schedule(SCENE_FALLBACK, PHASE2_TASKS, [this](TaskContext /*context*/) { OnWarMachineSceneDone(); });
 
         Merge(_armyEnemies, SummonArmy(SUMMON_GROUP_FIELD_ALLIANCE, true));
         Merge(_armyAllies, SummonArmy(SUMMON_GROUP_FIELD_HORDE, false));
@@ -1937,7 +1940,7 @@ private:
             warMachine->DespawnOrUnsummon();
 
         PlaySceneForPlayers(SCENE_SYLVANAS_DUMPS_BLIGHT);
-        _scheduler.Schedule(SCENE_FALLBACK, [this](TaskContext /*context*/) { OnBlightSceneDone(); });
+        _scheduler.Schedule(SCENE_FALLBACK, PHASE2_TASKS, [this](TaskContext /*context*/) { OnBlightSceneDone(); });
     }
 
     void OnBlightSceneDone()
@@ -1985,7 +1988,7 @@ private:
             });
         }
 
-        _scheduler.Schedule(MOVIE_FALLBACK, [this](TaskContext /*context*/) { BeginLikeWildfire(); });
+        _scheduler.Schedule(MOVIE_FALLBACK, PHASE2_TASKS, [this](TaskContext /*context*/) { BeginLikeWildfire(); });
     }
 
     void BeginLikeWildfire()
@@ -2014,7 +2017,7 @@ private:
         SummonChokepointArmy();
 
         StartConversationNear(CONVERSATION_CUT_THEM_OFF, sylvanas);
-        _scheduler.Schedule(HEROES_FOLLOW_ME, [this](TaskContext /*context*/)
+        _scheduler.Schedule(HEROES_FOLLOW_ME, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             StartEscort(instance->GetCreature(_nathanosGuid), Route(PATH_NATHANOS_TO_SIDE, NathanosRouteToSide), EscortEnd::NathanosAtSide, false);
             StartEscort(instance->GetCreature(_baineGuid), { BaineSide }, EscortEnd::None, false);
@@ -2040,11 +2043,11 @@ private:
 
         StartConversationNear(CONVERSATION_OUTNUMBERED, instance->GetCreature(_nathanosGuid));
 
-        _scheduler.Schedule(HOLD_YOUR_GROUND, [this](TaskContext /*context*/)
+        _scheduler.Schedule(HOLD_YOUR_GROUND, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             SummonVoidTear();
         });
-        _scheduler.Schedule(OUTNUMBERED_LENGTH, [this](TaskContext /*context*/)
+        _scheduler.Schedule(OUTNUMBERED_LENGTH, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             if (GetCurrentStepId() == STEP_H_HOLDING_THEM_BACK)
                 DoSendScenarioEvent(SCENARIO_EVENT_H_INTERCEPT_ALLIANCE);
@@ -2155,12 +2158,12 @@ private:
         ObjectGuid baineGuid = baine ? baine->GetGUID() : ObjectGuid::Empty;
         ObjectGuid sylvanasGuid = sylvanas ? sylvanas->GetGUID() : ObjectGuid::Empty;
 
-        _scheduler.Schedule(2s, [this, baineGuid](TaskContext /*context*/)
+        _scheduler.Schedule(2s, PHASE2_TASKS, [this, baineGuid](TaskContext /*context*/)
         {
             if (Creature* b = instance->GetCreature(baineGuid))
                 b->Yell(BROADCAST_TEXT_BAINE_RETREAT);
         });
-        _scheduler.Schedule(4s, [this](TaskContext /*context*/)
+        _scheduler.Schedule(4s, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             PlaySceneForPlayers(SCENE_SYLVANAS_BLOCKS_ALLIANCE);
             for (float x = 1440.0f; x <= 1500.0f; x += 20.0f)
@@ -2171,7 +2174,7 @@ private:
                     if (leader->GetEntry() == NPC_JAINA)
                         leader->Yell(BROADCAST_TEXT_JAINA_MUST_NOT_ESCAPE);
         });
-        _scheduler.Schedule(7s, [this, sylvanasGuid](TaskContext /*context*/)
+        _scheduler.Schedule(7s, PHASE2_TASKS, [this, sylvanasGuid](TaskContext /*context*/)
         {
             // The blight swallows the chokepoint; the battle outside the gates goes on.
             DespawnAll(_chokepointEnemies);
@@ -2183,7 +2186,7 @@ private:
             if (Creature* lorthemar = instance->GetCreature(_lorthemarGuid))
                 lorthemar->DespawnOrUnsummon(3s);
         });
-        _scheduler.Schedule(20s, [this, sylvanasGuid, baineGuid](TaskContext /*context*/)
+        _scheduler.Schedule(20s, PHASE2_TASKS, [this, sylvanasGuid, baineGuid](TaskContext /*context*/)
         {
             // Sylvanas holds the Alliance back and meets everyone in the courtyard.
             for (ObjectGuid const& guid : { sylvanasGuid, baineGuid })
@@ -2219,7 +2222,7 @@ private:
         StartConversationNear(CONVERSATION_FINALLY_SHOW_UP, sylvanas);
         // "Champions, with me": the gates open, Sylvanas, Baine and Nathanos walk into the
         // throne room and wait there; the step is done when a player comes in.
-        _scheduler.Schedule(CHAMPIONS_BEAR_WITNESS, [this](TaskContext /*context*/)
+        _scheduler.Schedule(CHAMPIONS_BEAR_WITNESS, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             OpenPortcullises(_throneRoomGates, "throne room");
             _throneRoomOpen = true;
@@ -2280,7 +2283,7 @@ private:
                     scenario->CompleteStep(step);
                 }
 
-        _scheduler.Schedule(MOVIE_FALLBACK, [this](TaskContext /*context*/)
+        _scheduler.Schedule(MOVIE_FALLBACK, PHASE2_TASKS, [this](TaskContext /*context*/)
         {
             for (auto& ref : instance->GetPlayers())
                 if (Player* player = ref.GetSource())
@@ -2323,7 +2326,10 @@ private:
         InstanceScenario* scenario = instance->GetInstanceScenario();
         ScenarioStepEntry const* target = sScenarioStepStore.LookupEntry(stepIds[number - 1]);
         ScenarioStepEntry const* current = scenario ? scenario->GetStep() : nullptr;
-        if (!target || !current || current->OrderIndex >= target->OrderIndex)
+        // Steps 6-13 can be played again (or an earlier one of them) once the scenario is there.
+        ScenarioStepEntry const* pushThemBack = sScenarioStepStore.LookupEntry(STEP_H_PUSH_THEM_BACK);
+        bool replay = number >= 6 && current && pushThemBack && current->OrderIndex >= pushThemBack->OrderIndex;
+        if (!target || !current || (current->OrderIndex >= target->OrderIndex && !replay))
         {
             TC_LOG_ERROR("scripts", "Battle for Lordaeron: cannot jump to step %u (only forward)", number);
             return;
@@ -2355,9 +2361,8 @@ private:
             _courtyardReached = true;
             _followSaurfangToBattleDone = true;
             OpenPortcullises(_keepFrontGates, "keep front");
-            if (_courtyard.empty())
-                _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
             DespawnArmies();
+            ResetPhase2();
         }
 
         if (number >= 9)
@@ -2374,10 +2379,7 @@ private:
                 if (Player* player = ref.GetSource())
                     player->NearTeleportTo(playerPos);
 
-            for (ScenarioStepEntry const* step : sScenarioStepStore)
-                if (step->ScenarioID == target->ScenarioID && !step->IsBonusObjective() && step->OrderIndex < target->OrderIndex)
-                    scenario->SetStepState(step, SCENARIO_STEP_DONE);
-            scenario->SetStep(target);
+            SetJumpedStep(scenario, target);
 
             TC_LOG_INFO("scripts", "Battle for Lordaeron: jumped to step %u (%u)", number, target->ID);
             return;
@@ -2432,12 +2434,49 @@ private:
             if (Player* player = ref.GetSource())
                 player->NearTeleportTo(playerPos);
 
-        for (ScenarioStepEntry const* step : sScenarioStepStore)
-            if (step->ScenarioID == target->ScenarioID && !step->IsBonusObjective() && step->OrderIndex < target->OrderIndex)
-                scenario->SetStepState(step, SCENARIO_STEP_DONE);
-        scenario->SetStep(target);
+        SetJumpedStep(scenario, target);
 
         TC_LOG_INFO("scripts", "Battle for Lordaeron: jumped to step %u (%u)", number, target->ID);
+    }
+
+    // Earlier steps done, the target and later ones not; the step starts again on the next tick
+    // even when it is the current one.
+    void SetJumpedStep(InstanceScenario* scenario, ScenarioStepEntry const* target)
+    {
+        for (ScenarioStepEntry const* step : sScenarioStepStore)
+            if (step->ScenarioID == target->ScenarioID && !step->IsBonusObjective())
+                scenario->SetStepState(step, step->OrderIndex < target->OrderIndex ? SCENARIO_STEP_DONE : SCENARIO_STEP_NOT_STARTED);
+        scenario->SetStep(target);
+        _currentStepId = 0;
+    }
+
+    // Everything steps 6-13 set up, back to how To Battle! leaves it.
+    void ResetPhase2()
+    {
+        _scheduler.CancelGroup(PHASE2_TASKS);
+        for (uint8 groupId = SUMMON_GROUP_FRONT_HORDE; groupId <= SUMMON_GROUP_ROAD_RESERVES; ++groupId)
+            _pendingReinforcements.erase(groupId);
+
+        DespawnAll(_allianceLeaders);
+        DespawnAll(_courtyard);
+        _courtyard = SummonGroup(SUMMON_GROUP_COURTYARD);
+
+        _nathanosGuid.Clear();
+        _lorthemarGuid.Clear();
+        _baineGuid.Clear();
+        _sylvanasGuid.Clear();
+        _likeWildfireStarted = false;
+        _voidTearOpen = false;
+        _kingPieceProgress = 0;
+        _blightSceneStage = 0;
+        _waveNumber = 0;
+        _blightedEnemies.clear();
+        _rescuedWounded.clear();
+        _throneRoomOpen = false;
+        _throneRoomEntered = false;
+        for (ObjectGuid const& guid : _throneRoomGates)
+            if (GameObject* gate = instance->GetGameObject(guid))
+                gate->SetGoState(GO_STATE_READY);
     }
 
     // Under Siege: Saurfang briefs the players; when he is done the portcullis to the
@@ -2732,12 +2771,42 @@ public:
         static std::vector<ChatCommand> lordaeronCommandTable =
         {
             { "step", rbac::RBAC_PERM_COMMAND_DEBUG, false, &HandleStepCommand, "" },
+            { "route", rbac::RBAC_PERM_COMMAND_DEBUG, false, &HandleRouteCommand, "" },
         };
         static std::vector<ChatCommand> commandTable =
         {
             { "lordaeron", rbac::RBAC_PERM_COMMAND_DEBUG, false, nullptr, "", lordaeronCommandTable },
         };
         return commandTable;
+    }
+
+    // .lordaeron route: which routes come from waypoint_data (drawn in game) and which are the script's.
+    static bool HandleRouteCommand(ChatHandler* handler, char const* /*args*/)
+    {
+        static std::pair<uint32, char const*> const paths[] =
+        {
+            { PATH_NATHANOS_TO_SIDE,        "Nathanos: courtyard -> talk with Baine (step 9)" },
+            { PATH_NATHANOS_TO_LORTHEMAR,   "Nathanos: -> Lor'themar (step 9)" },
+            { PATH_NATHANOS_TO_CHOKEPOINT,  "Nathanos: Lor'themar -> chokepoint (step 9)" },
+            { PATH_LORTHEMAR_TO_CHOKEPOINT, "Lor'themar: -> chokepoint (step 9)" },
+            { PATH_NATHANOS_RETREAT_1,      "Nathanos: chokepoint -> \"Keep moving!\" (step 12)" },
+            { PATH_NATHANOS_RETREAT_2,      "Nathanos: -> \"We're almost there!\" (step 12)" },
+            { PATH_NATHANOS_RETREAT_3,      "Nathanos: -> courtyard (step 12)" },
+            { PATH_SYLVANAS_TO_THRONE_ROOM, "Sylvanas: -> throne room (step 13)" },
+            { PATH_BAINE_TO_THRONE_ROOM,    "Baine: -> throne room (step 13)" },
+            { PATH_NATHANOS_TO_THRONE_ROOM, "Nathanos: -> throne room (step 13)" },
+        };
+
+        for (auto const& path : paths)
+        {
+            sWaypointMgr->ReloadPath(path.first);
+            WaypointPath const* points = sWaypointMgr->GetPath(path.first);
+            if (points && !points->empty())
+                handler->PSendSysMessage("%u  %s: |cff00ff00%u points from waypoint_data|r", path.first, path.second, uint32(points->size()));
+            else
+                handler->PSendSysMessage("%u  %s: script route", path.first, path.second);
+        }
+        return true;
     }
 
     static bool HandleStepCommand(ChatHandler* handler, char const* args)
@@ -2747,7 +2816,8 @@ public:
         if (number < 2 || number > 13)
         {
             handler->SendSysMessage("Usage: .lordaeron step <2-13>  (2 Spies, 3 To the Heart, 4 Evacuate, 5 To Battle, 6 Push Them Back, "
-                "7 War Machine, 8 Secret Weapon, 9 Like Wildfire, 10 Holding Them Back, 11 King Piece, 12 Cry Havoc, 13 Dark Lady)");
+                "7 War Machine, 8 Secret Weapon, 9 Like Wildfire, 10 Holding Them Back, 11 King Piece, 12 Cry Havoc, 13 Dark Lady). "
+                "Steps 6-13 can be played again from any of them.");
             return true;
         }
 
@@ -2759,7 +2829,7 @@ public:
         }
 
         instance->SetData(DATA_JUMP_TO_STEP, number);
-        handler->PSendSysMessage("Battle for Lordaeron: jumping to step %u (forward only).", number);
+        handler->PSendSysMessage("Battle for Lordaeron: jumping to step %u.", number);
         return true;
     }
 };
