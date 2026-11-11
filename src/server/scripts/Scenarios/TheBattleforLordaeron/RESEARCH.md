@@ -120,3 +120,24 @@ Battle notes: many soldier templates carry the flags of ambient spawns (IMMUNE_T
 glaive throwers, ballistae, gryphon riders, battlemages, high priests; NOT_SELECTABLE on Cogspark),
 the script clears them. Conversations whose sniffed actors have no creature guid (8164, 5500, 9675,
 8690/8691/8694, 7762, 7759, 5926, 7659, 8166, 7928, 8159, 8160, 6787) are talking heads.
+
+## The battle outside the gates (steps 6-8)
+
+In the Alliance-view sniff the field (x 1880-2175, y 55-365) holds 97 living Horde soldiers,
+159 Alliance soldiers and 114 Risen Skeletons. The skeletons are the dead raised by the blight
+("It's killing her own troops"), so they belong to Our Secret Weapon, not to the first steps.
+
+- Groups 11 (Horde) and 12 (Alliance) cover the whole field from Push Them Back on and are never
+  despawned between steps 6 and 8. Every soldier without an opponent within 9 yards in the sniff
+  gets one next to it (34 Horde, 18 Alliance added).
+- A killed soldier is replaced at its own post after 30 seconds (not next to a player).
+- Soldiers keep their posts: they fight opponents within 40 yards of it, two attackers per
+  opponent, and never cross the field. Riflemen, huntresses, dark rangers, mages, battlemages,
+  shamans, high priests and apothecaries fight from range with generic NPC spells (the templates
+  have none). Siege engines stand still.
+- Waves (Defend the Azerite War Machine): about 20 soldiers each on three lanes (north-east, east,
+  south-east) from 95 yards, each with its own place on an arc in front of the machine. Emery:
+  footmen and riflemen; Lyara: huntresses, druids, glaive throwers; Cogspark: peacekeepers,
+  maulers, battlemages, ballistae, gryphon riders (the unit types of the wiki's step text).
+- Group 13 (Risen Skeletons, Sludge Guards, Blight Throwers) and 14 (wounded) appear when the
+  blight has been dumped.

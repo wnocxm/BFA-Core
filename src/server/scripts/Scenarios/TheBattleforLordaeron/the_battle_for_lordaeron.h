@@ -124,6 +124,8 @@ enum BattleForLordaeronNpcs
     NPC_AZERITE_WAR_MACHINE             = 132693,
     NPC_WOUNDED_HORDE_SOLDIER           = 127065,
     NPC_PLAGUE_WAGON                    = 126786,
+    NPC_HORDE_DEMOLISHER                = 124674,
+    NPC_FORSAKEN_APOTHECARY_RESERVE     = 133142,
 
     // Civilians
     NPC_UNDERCITY_EVACUEE               = 130687,
@@ -157,6 +159,8 @@ enum BattleForLordaeronNpcs
     NPC_AUCHENAI_BALLISTA               = 133507,
     NPC_GRYPHON_RIDER                   = 133502,
     NPC_WORGEN_BATTLEMAGE               = 133528,
+    NPC_EXODAR_HIGH_PRIEST              = 138067,
+    NPC_ALLIANCE_SIEGE_TANK             = 124657,
 
     // Alliance scenario point of view (static spawns of map 1760)
     NPC_SAURFANG_ALLIANCE_SCENARIO      = 129179,
@@ -218,6 +222,13 @@ enum BattleForLordaeronSpells
     SPELL_BLIGHT_SPRAY                  = 261748,
     SPELL_BANDAGING                     = 249366, // spellclick of the wounded soldiers
     SPELL_WOUNDED                       = 255521, // the wounded soldiers' aura (Alliance scenario's 125622)
+
+    // The soldier templates have no spells; ranged soldiers use the generic NPC ones.
+    SPELL_SOLDIER_SHOOT                 = 6660,
+    SPELL_SOLDIER_FIREBALL              = 9053,
+    SPELL_SOLDIER_LIGHTNING_BOLT        = 9532,
+    SPELL_SOLDIER_HOLY_SMITE            = 9734,
+    SPELL_SOLDIER_SHADOW_BOLT           = 9613,
 };
 
 // SceneScriptPackage / Movie.db2
@@ -273,10 +284,10 @@ enum BattleForLordaeronSummonGroups
     SUMMON_GROUP_HEART_ENEMIES          = 9,
     SUMMON_GROUP_COURTYARD              = 10, // Sylvanas, Baine and the Horde army
     // Alliance-view layout of the same battle (build 27219) with Horde scenario entries
-    SUMMON_GROUP_FRONT_HORDE            = 11, // Push Them Back
+    SUMMON_GROUP_FRONT_HORDE            = 11, // the whole field outside the gates, from Push Them Back on
     SUMMON_GROUP_FRONT_ALLIANCE         = 12,
-    SUMMON_GROUP_FIELD_ALLIANCE         = 13, // Our Secret Weapon
-    SUMMON_GROUP_FIELD_HORDE            = 14, // with the wounded soldiers
+    SUMMON_GROUP_BLIGHT_HORDE           = 13, // Our Secret Weapon, after the blight: Risen Skeletons, Sludge Guards, Blight Throwers
+    SUMMON_GROUP_WOUNDED                = 14, // Our Secret Weapon: wounded Horde soldiers
     SUMMON_GROUP_CHOKEPOINT_HORDE       = 15, // Holding Them Back / The King Piece
     SUMMON_GROUP_CHOKEPOINT_ALLIANCE    = 16,
     SUMMON_GROUP_VOID_TEAR              = 17, // Ren'dorei rangers and Flametrons with Alleria
@@ -329,10 +340,8 @@ namespace BattleForLordaeron
     // Steps 6-13: Dugi guide points converted to world coordinates, leaders from the
     // Alliance-view sniff (Nathanos 136394, Lor'themar 137939, Alleria 125138, Mekkatorque 129043).
     Position const SaurfangPushLine     = { 1920.72f, 244.65f,  50.00f, 0.00f };       // Push Them Back
-    Position const WarMachineDefense    = { 2011.34f, 243.43f,  36.00f, 0.00f };       // Defend the Azerite War Machine
-    Position const WarMachinePos        = { 1998.00f, 243.40f,  36.00f, 0.00f };
-    Position const WaveSpawn            = { 2095.00f, 243.40f,  36.00f, 3.14f };
-    Position const WaveTarget           = { 2022.00f, 243.40f,  36.00f, 3.14f };
+    Position const WarMachinePos        = { 2011.34f, 243.43f,  36.00f, 0.00f };       // Defend the Azerite War Machine (guide point)
+    Position const WarMachineDefense    = { 2003.00f, 234.00f,  36.00f, 0.00f };       // Saurfang, next to it
     Position const TrizzPos             = { 1905.75f, 233.12f,  56.00f, 3.14f };       // Our Secret Weapon
     Position const NathanosCourtyard    = { 1794.00f, 233.50f,  60.60f, 0.68f };       // next to Sylvanas
     Position const BaineSide            = { 1800.50f, 184.00f,  61.00f, 1.25f };

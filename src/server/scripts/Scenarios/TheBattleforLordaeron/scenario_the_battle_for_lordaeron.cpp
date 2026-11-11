@@ -16,6 +16,7 @@
  */
 
 #include "the_battle_for_lordaeron.h"
+#include "Containers.h"
 #include "Conversation.h"
 #include "CreatureAI.h"
 #include "DB2Stores.h"
@@ -79,7 +80,6 @@ namespace
     // ---- Steps 6-13 ----
     constexpr uint32 FACTION_SCENARIO_ALLY      = 2501;
     constexpr float ARMY_ENGAGE_RANGE           = 40.0f;  // opponents looked for around a soldier's post
-    constexpr float ARMY_ADVANCE_RANGE          = 150.0f; // no opponent near its post: it advances towards one
     constexpr float ARMY_MARCH_ENGAGE_RANGE     = 15.0f;  // marching soldiers fight what they run into
     constexpr uint32 ARMY_MAX_ATTACKERS         = 2;      // per opponent, so the fights spread over the field
     constexpr float ARMY_HEAL_BELOW_PCT         = 35.0f;  // NPC fights never end; only players kill
@@ -87,12 +87,19 @@ namespace
     constexpr float ESCORT_POINT_REACHED        = 3.0f;
     constexpr float ESCORT_WAIT_RANGE           = 35.0f;  // leaders wait for the players
     constexpr float ARRIVAL_CREDIT_RANGE        = 30.0f;
-    constexpr size_t MIN_FRONT_ENEMIES_LEFT     = 25;
-    constexpr size_t MIN_FIELD_ENEMIES_LEFT     = 25;
+    constexpr Milliseconds BATTLE_RESPAWN_DELAY = 30s;    // a killed soldier of the field is replaced at its post
+    constexpr uint32 BATTLE_RESPAWNS_PER_TICK   = 5;
+    constexpr float BATTLE_RESPAWN_CLEAR_RANGE  = 25.0f;  // never right next to a player
+    constexpr float ARMY_RANGED_DISTANCE        = 18.0f;  // riflemen, archers and casters keep this distance
+    constexpr float ARMY_RANGED_MAX_RANGE       = 35.0f;
+    constexpr float WAVE_SPAWN_DISTANCE         = 95.0f;  // from the War Machine, on three lanes
+    constexpr float WAVE_TARGET_DISTANCE        = 22.0f;
+    constexpr float WAVE_LANE_ANGLE             = 0.70f;  // north-east, east and south-east
+    constexpr uint32 WAR_MACHINE_DEFENDERS      = 10;
     constexpr size_t MIN_CHOKEPOINT_ENEMIES_LEFT = 15;
     constexpr Milliseconds WAR_MACHINE_ARRIVES_LENGTH = 24513ms; // CONVERSATION_WAR_MACHINE_ARRIVES
     constexpr Milliseconds NEXT_WAVE_DELAY      = 8s;
-    constexpr Milliseconds WAVE_GIVE_UP_DELAY   = 120s;  // a wave with a member stuck out of reach still counts
+    constexpr Milliseconds WAVE_GIVE_UP_DELAY   = 240s;  // a wave with a member stuck out of reach still counts
     constexpr Milliseconds SCENE_FALLBACK       = 60s;   // in case no player reports the end of a scene
     constexpr Milliseconds MOVIE_FALLBACK       = 200s;
     constexpr Milliseconds HEROES_FOLLOW_ME     = 29294ms; // CONVERSATION_CUT_THEM_OFF "Heroes, follow me!"
@@ -247,6 +254,17 @@ struct Escort
     size_t Index = 0;
     EscortEnd End = EscortEnd::None;
     bool WaitForPlayers = false;
+};
+
+// A post of the battle outside the gates (summon groups 11-13): who stands there now and,
+// once killed, since when it is empty.
+struct BattleSlot
+{
+    uint32 Entry;
+    Position Pos;
+    bool Alliance;
+    ObjectGuid Guid;
+    uint32 DeadSince = 0;
 };
 
 // A step event sent once a player is near someone (e.g. "Follow Nathanos to the keep").
@@ -1308,6 +1326,7 @@ private:
         DespawnAll(_roadReserves);
         _chokepointAllies.clear();
         _chokepointEnemies.clear();
+        _battleSlots.clear();
         _marchTargets.clear();
         _armyPost.clear();
         _armyTarget.clear();
@@ -1316,12 +1335,133 @@ private:
         _waveActive = false;
     }
 
-    // The battle: every soldier keeps its post from the sniffed layout and fights an opponent
+    // ---- The battle outside the gates (Push Them Back to Our Secret Weapon) ------------------
+    // Both armies stand all over the field from the start and stay through the three steps.
+    // A soldier a player kills is replaced at its own post a little later, so the field never
+    // empties and nothing piles up.
+
+    static bool IsSiegeEngine(uint32 entry)
+    {
+        return entry == NPC_HORDE_DEMOLISHER || entry == NPC_ALLIANCE_SIEGE_TANK || entry == NPC_GLAIVE_THROWER || entry == NPC_AUCHENAI_BALLISTA;
+    }
+
+    // Riflemen, archers and casters fight from a distance.
+    static uint32 RangedSpellOf(uint32 entry)
+    {
+        switch (entry)
+        {
+            case NPC_DWARVEN_RIFLEMAN:
+            case NPC_DARNASSIAN_HUNTRESS:
+            case NPC_DARK_RANGER:
+            case NPC_RENDOREI_RANGER:
+                return SPELL_SOLDIER_SHOOT;
+            case NPC_WORGEN_BATTLEMAGE:
+            case NPC_ALLIANCE_MAGE:
+                return SPELL_SOLDIER_FIREBALL;
+            case NPC_DARKSPEAR_SHAMAN:
+                return SPELL_SOLDIER_LIGHTNING_BOLT;
+            case NPC_EXODAR_HIGH_PRIEST:
+                return SPELL_SOLDIER_HOLY_SMITE;
+            case NPC_FORSAKEN_APOTHECARY:
+            case NPC_FORSAKEN_APOTHECARY_RESERVE:
+                return SPELL_SOLDIER_SHADOW_BOLT;
+            default:
+                return 0;
+        }
+    }
+
+    void SummonBattleGroup(uint8 groupId, bool alliance)
+    {
+        std::vector<TempSummonData> const* data = sObjectMgr->GetSummonGroup(MAP_LORDAERON_SCENARIO, SUMMONER_TYPE_MAP, groupId);
+        if (!data)
+        {
+            TC_LOG_ERROR("scripts", "Battle for Lordaeron: summon group %u is missing (run 2026_11_08_00_world_battle_for_lordaeron_keep.sql)", uint32(groupId));
+            return;
+        }
+
+        for (TempSummonData const& summonData : *data)
+        {
+            BattleSlot slot;
+            slot.Entry = summonData.entry;
+            slot.Pos = summonData.pos;
+            slot.Alliance = alliance;
+            SpawnBattleSlot(slot);
+            _battleSlots.push_back(slot);
+        }
+    }
+
+    void SpawnBattleSlot(BattleSlot& slot)
+    {
+        Creature* soldier = Summon(slot.Entry, slot.Pos);
+        if (!soldier)
+            return;
+
+        PrepareSoldier(soldier, slot.Alliance, *soldier);
+        // Siege engines hold their ground.
+        if (IsSiegeEngine(slot.Entry))
+            soldier->SetControlled(true, UNIT_STATE_ROOT);
+
+        slot.Guid = soldier->GetGUID();
+        slot.DeadSince = 0;
+        (slot.Alliance ? _armyEnemies : _armyAllies).insert(slot.Guid);
+    }
+
+    // The two armies and the archers on the walls (also after a .lordaeron step).
+    void EnsureBattlefield()
+    {
+        if (!_battleSlots.empty())
+            return;
+
+        SummonBattleGroup(SUMMON_GROUP_FRONT_HORDE, false);
+        SummonBattleGroup(SUMMON_GROUP_FRONT_ALLIANCE, true);
+        Merge(_armyAllies, SummonArmy(SUMMON_GROUP_KEEP_WALLS, false));
+        TC_LOG_INFO("scripts", "Battle for Lordaeron: the armies meet outside the gates (%u Horde, %u Alliance)",
+            uint32(_armyAllies.size()), uint32(_armyEnemies.size()));
+    }
+
+    bool IsPlayerNearPos(Position const& pos, float range) const
+    {
+        for (auto& ref : instance->GetPlayers())
+            if (Player* player = ref.GetSource())
+                if (player->GetDistance(pos) <= range)
+                    return true;
+        return false;
+    }
+
+    void UpdateBattleSlots(uint32 stepId)
+    {
+        if (stepId != STEP_H_PUSH_THEM_BACK && stepId != STEP_H_DEFEND_WAR_MACHINE && stepId != STEP_H_OUR_SECRET_WEAPON)
+            return;
+
+        uint32 now = GameTime::GetGameTimeMS();
+        uint32 respawned = 0;
+        for (BattleSlot& slot : _battleSlots)
+        {
+            Creature* soldier = instance->GetCreature(slot.Guid);
+            if (soldier && soldier->IsAlive())
+                continue;
+
+            if (!slot.DeadSince)
+            {
+                slot.DeadSince = now;
+                continue;
+            }
+
+            if (now - slot.DeadSince < uint32(BATTLE_RESPAWN_DELAY.count()) || respawned >= BATTLE_RESPAWNS_PER_TICK
+                || IsPlayerNearPos(slot.Pos, BATTLE_RESPAWN_CLEAR_RANGE))
+                continue;
+
+            SpawnBattleSlot(slot);
+            ++respawned;
+        }
+    }
+
+    // The fights: every soldier keeps its post from the sniffed layout and fights an opponent
     // near it, at most ARMY_MAX_ATTACKERS on the same one, so fights go on all over the field
-    // instead of everyone piling up on the first enemy. Soldiers with nobody near their post
-    // advance towards the closest opponent. Factions 2501/2502 are not hostile by template,
-    // so the script starts the fights. NPCs never finish each other off: the kills are the
-    // players' (a soldier a player hits is no longer healed).
+    // instead of everyone piling up on the first enemy. Nobody leaves its post to cross the
+    // field. Factions 2501/2502 are not hostile by template, so the script starts the fights.
+    // NPCs never finish each other off: the kills are the players' (a soldier a player hits
+    // is no longer healed).
     void UpdateArmies(uint32 stepId)
     {
         PruneGone(_armyAllies);
@@ -1356,6 +1496,7 @@ private:
             OnWaveDefeated();
         }
 
+        UpdateBattleSlots(stepId);
         CheckArmyReinforcements(stepId);
     }
 
@@ -1374,6 +1515,10 @@ private:
         if (Unit* victim = soldier->GetVictim())
             if (victim->GetCharmerOrOwnerPlayerOrPlayerItself())
                 return;
+
+        // Siege engines of the field stay where they are.
+        if (IsSiegeEngine(soldier->GetEntry()) && soldier->HasUnitState(UNIT_STATE_ROOT))
+            return;
 
         // Marching (waves, the Alliance charge at the chokepoint): fights only what it runs into.
         auto march = _marchTargets.find(guid);
@@ -1409,8 +1554,7 @@ private:
             Creature* opponent = instance->GetCreature(current->second);
             if (opponent && opponent->IsAlive() && opponent->GetDistance(post) <= ARMY_ENGAGE_RANGE)
             {
-                if (soldier->GetVictim() != opponent)
-                    soldier->AI()->AttackStart(opponent);
+                Fight(soldier, opponent);
                 return;
             }
             --attackers[current->second];
@@ -1424,31 +1568,12 @@ private:
             return;
         }
 
-        // Nobody near its post: it advances to the closest opponent and holds there.
+        // Every opponent around already has enough attackers: it joins one of those fights
+        // rather than standing idle. With nobody around at all it holds its post.
         if (soldier->IsInCombat() || onWall)
             return;
-        Creature* opponent = FindOpponent(soldier, *soldier, ARMY_ADVANCE_RANGE, opponents, attackers);
-        // Every opponent around already has enough attackers: it joins one of those fights
-        // rather than standing idle.
-        if (!opponent)
-        {
-            if (Creature* crowded = FindOpponent(soldier, post, ARMY_ENGAGE_RANGE, opponents, attackers, std::numeric_limits<uint32>::max()))
-            {
-                Engage(soldier, crowded, attackers);
-                return;
-            }
-            opponent = FindOpponent(soldier, *soldier, ARMY_ADVANCE_RANGE, opponents, attackers, std::numeric_limits<uint32>::max());
-        }
-        if (opponent)
-        {
-            float angle = opponent->GetAngle(soldier);
-            Position front = GroundPos(opponent->GetPositionX() + std::cos(angle) * 6.0f, opponent->GetPositionY() + std::sin(angle) * 6.0f,
-                opponent->GetPositionZ(), soldier->GetOrientation());
-            _armyPost[guid] = front;
-            soldier->SetHomePosition(front);
-            soldier->SetWalk(false);
-            soldier->GetMotionMaster()->MovePoint(0, front);
-        }
+        if (Creature* crowded = FindOpponent(soldier, post, ARMY_ENGAGE_RANGE, opponents, attackers, std::numeric_limits<uint32>::max()))
+            Engage(soldier, crowded, attackers);
     }
 
     // The closest opponent around a point that is not already fought by enough soldiers.
@@ -1481,7 +1606,23 @@ private:
     {
         _armyTarget[soldier->GetGUID()] = opponent->GetGUID();
         ++attackers[opponent->GetGUID()];
-        soldier->AI()->AttackStart(opponent);
+        Fight(soldier, opponent);
+    }
+
+    void Fight(Creature* soldier, Creature* opponent)
+    {
+        uint32 spellId = RangedSpellOf(soldier->GetEntry());
+        if (!spellId)
+        {
+            if (soldier->GetVictim() != opponent)
+                soldier->AI()->AttackStart(opponent);
+            return;
+        }
+
+        if (soldier->GetVictim() != opponent)
+            soldier->AI()->AttackStartCaster(opponent, ARMY_RANGED_DISTANCE);
+        if (!soldier->HasUnitState(UNIT_STATE_CASTING) && soldier->IsWithinDistInMap(opponent, ARMY_RANGED_MAX_RANGE) && soldier->IsWithinLOSInMap(opponent))
+            soldier->CastSpell(opponent, spellId, TriggerCastFlags(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT | TRIGGERED_IGNORE_POWER_AND_REAGENT_COST));
     }
 
     void OnArmyUnitDeath(Creature* creature)
@@ -1546,14 +1687,6 @@ private:
     {
         switch (stepId)
         {
-            case STEP_H_PUSH_THEM_BACK:
-                if (_armyEnemies.size() < MIN_FRONT_ENEMIES_LEFT)
-                    ScheduleArmyReinforcements(stepId, SUMMON_GROUP_FRONT_ALLIANCE);
-                break;
-            case STEP_H_OUR_SECRET_WEAPON:
-                if (_armyEnemies.size() < MIN_FIELD_ENEMIES_LEFT)
-                    ScheduleArmyReinforcements(stepId, SUMMON_GROUP_FIELD_ALLIANCE);
-                break;
             case STEP_H_THE_KING_PIECE:
                 if (_armyEnemies.size() < MIN_CHOKEPOINT_ENEMIES_LEFT)
                     ScheduleArmyReinforcements(stepId, SUMMON_GROUP_CHOKEPOINT_ALLIANCE);
@@ -1800,9 +1933,7 @@ private:
                 MakeLeader(leader);
             }
 
-        Merge(_armyAllies, SummonArmy(SUMMON_GROUP_FRONT_HORDE, false));
-        Merge(_armyEnemies, SummonArmy(SUMMON_GROUP_FRONT_ALLIANCE, true));
-        SummonArmy(SUMMON_GROUP_KEEP_WALLS, false);
+        EnsureBattlefield();
 
         if (!GetSaurfang())
             SummonSaurfang(SaurfangFrontLine);
@@ -1811,9 +1942,11 @@ private:
     }
 
     // ---- Defend the Azerite War Machine ----------------------------------------------------
+    // The battle goes on all over the field; the Alliance sends three waves at the War
+    // Machine, each on three lanes (north-east, east, south-east).
     void StartDefendWarMachine()
     {
-        DespawnAll(_armyEnemies);
+        EnsureBattlefield();
 
         PlaySceneForPlayers(SCENE_AZERITE_MACHINE_ARRIVES);
         if (Creature* warMachine = Summon(NPC_AZERITE_WAR_MACHINE, WarMachinePos))
@@ -1821,6 +1954,21 @@ private:
             MakeLeader(warMachine);
             _warMachineGuid = warMachine->GetGUID();
             _phase2Npcs.insert(_warMachineGuid);
+        }
+
+        // Its guard: a half circle of Horde soldiers in front of it.
+        static uint32 const defenders[] = { NPC_ORGRIMMAR_RAIDER, NPC_TAUREN_EARTHSHAKER, NPC_DARKSPEAR_SHAMAN, NPC_ORGRIMMAR_RAIDER, NPC_TAUREN_EARTHSHAKER };
+        for (uint32 i = 0; i < WAR_MACHINE_DEFENDERS; ++i)
+        {
+            float angle = -1.3f + 2.6f * float(i) / float(WAR_MACHINE_DEFENDERS - 1);
+            Position post = FieldGround(WarMachinePos.GetPositionX() + std::cos(angle) * 13.0f, WarMachinePos.GetPositionY() + std::sin(angle) * 13.0f);
+            post.SetOrientation(Position::NormalizeOrientation(angle));
+            if (Creature* defender = Summon(defenders[i % 5], post))
+            {
+                PrepareSoldier(defender, false, post);
+                _armyAllies.insert(defender->GetGUID());
+                _phase2Npcs.insert(defender->GetGUID());
+            }
         }
 
         Creature* saurfang = GetSaurfang();
@@ -1840,40 +1988,60 @@ private:
         if (GetCurrentStepId() != STEP_H_DEFEND_WAR_MACHINE)
             return;
 
-        static std::vector<uint32> const waves[3] =
+        // "Riflemen! Lock and load!", "Archers, nock your arrows!", "Rev those engines!"
+        static std::vector<std::pair<uint32, uint32>> const waves[3] =
         {
-            { NPC_KNIGHT_CAPTAIN_EMERY, NPC_STORMWIND_FOOTMAN, NPC_STORMWIND_FOOTMAN, NPC_STORMWIND_FOOTMAN, NPC_STORMWIND_FOOTMAN,
-              NPC_DWARVEN_RIFLEMAN, NPC_DWARVEN_RIFLEMAN, NPC_DWARVEN_RIFLEMAN, NPC_DWARVEN_RIFLEMAN },
-            { NPC_MASTER_SHAPESHIFTER_LYARA, NPC_DARNASSIAN_HUNTRESS, NPC_DARNASSIAN_HUNTRESS, NPC_DARNASSIAN_HUNTRESS,
-              NPC_DARNASSIAN_HUNTRESS, NPC_GLAIVE_THROWER, NPC_DRUID_OF_THE_CLAW_2, NPC_DRUID_OF_THE_CLAW_2, NPC_DRUID_OF_THE_CLAW_2 },
-            { NPC_MECHANORANGER_COGSPARK, NPC_EXODAR_PEACEKEEPER, NPC_EXODAR_PEACEKEEPER, NPC_EXODAR_PEACEKEEPER,
-              NPC_AUCHENAI_BALLISTA, NPC_AUCHENAI_BALLISTA, NPC_GRYPHON_RIDER, NPC_GRYPHON_RIDER, NPC_GILNEAN_MAULER, NPC_GILNEAN_MAULER },
+            { { NPC_KNIGHT_CAPTAIN_EMERY, 1 }, { NPC_STORMWIND_FOOTMAN, 9 }, { NPC_DWARVEN_RIFLEMAN, 8 }, { NPC_GILNEAN_MAULER, 2 } },
+            { { NPC_MASTER_SHAPESHIFTER_LYARA, 1 }, { NPC_DARNASSIAN_HUNTRESS, 9 }, { NPC_DRUID_OF_THE_CLAW_2, 6 }, { NPC_GLAIVE_THROWER, 2 },
+              { NPC_EXODAR_HIGH_PRIEST, 2 } },
+            { { NPC_MECHANORANGER_COGSPARK, 1 }, { NPC_EXODAR_PEACEKEEPER, 5 }, { NPC_GILNEAN_MAULER, 4 }, { NPC_WORGEN_BATTLEMAGE, 4 },
+              { NPC_AUCHENAI_BALLISTA, 2 }, { NPC_GRYPHON_RIDER, 3 }, { NPC_EXODAR_HIGH_PRIEST, 2 } },
         };
         static uint32 const waveConversations[3] = { CONVERSATION_WAVE_EMERY, CONVERSATION_WAVE_LYARA, CONVERSATION_WAVE_COGSPARK };
+        static float const laneAngles[3] = { 0.0f, WAVE_LANE_ANGLE, -WAVE_LANE_ANGLE };
 
         _waveNumber = number;
         _waveActive = true;
         _waveStartTime = GameTime::GetGameTimeMS();
 
+        std::vector<uint32> entries;
+        for (auto const& part : waves[number - 1])
+            entries.insert(entries.end(), part.second, part.first);
+        // The leader stays first; the rest is mixed over the lanes.
+        for (size_t i = entries.size() - 1; i > 1; --i)
+            std::swap(entries[i], entries[urand(1, uint32(i))]);
+
         Creature* leader = nullptr;
         GuidSet wave;
-        uint32 i = 0;
-        for (uint32 entry : waves[number - 1])
+        for (uint32 i = 0; i < entries.size(); ++i)
         {
-            // Rows of three, the leader in front.
-            float x = WaveSpawn.GetPositionX() + float(i / 3) * 4.0f;
-            float y = WaveSpawn.GetPositionY() + (float(i % 3) - 1.0f) * 4.0f;
-            if (Creature* soldier = Summon(entry, GroundPos(x, y, WaveSpawn.GetPositionZ(), WaveSpawn.GetOrientation())))
+            // Three lanes; on each one rows of three, every soldier with its own place to reach
+            // on an arc in front of the War Machine.
+            float angle = laneAngles[i % 3];
+            uint32 place = i / 3;
+            float column = float(place % 3) - 1.0f;
+            float rank = float(place / 3);
+            float dirX = std::cos(angle), dirY = std::sin(angle);
+
+            auto pointAt = [&](float distance, float spread)
             {
-                PrepareSoldier(soldier, true, *soldier);
-                wave.insert(soldier->GetGUID());
-                if (!leader)
-                    leader = soldier;
-            }
-            ++i;
+                return FieldGround(WarMachinePos.GetPositionX() + dirX * (distance + rank * 5.0f) - dirY * column * spread,
+                    WarMachinePos.GetPositionY() + dirY * (distance + rank * 5.0f) + dirX * column * spread);
+            };
+
+            Position spawn = pointAt(WAVE_SPAWN_DISTANCE, 5.0f);
+            spawn.SetOrientation(Position::NormalizeOrientation(angle + float(M_PI)));
+            Creature* soldier = Summon(entries[i], spawn);
+            if (!soldier)
+                continue;
+
+            PrepareSoldier(soldier, true, *soldier);
+            _marchTargets[soldier->GetGUID()] = pointAt(WAVE_TARGET_DISTANCE, 9.0f);
+            wave.insert(soldier->GetGUID());
+            if (!leader)
+                leader = soldier;
         }
 
-        MarchTo(wave, WaveTarget);
         Merge(_waveUnits, wave);
         Merge(_armyEnemies, wave);
         TC_LOG_INFO("scripts", "Battle for Lordaeron: wave %u of the Alliance attacks (%u soldiers)", number, uint32(wave.size()));
@@ -1910,16 +2078,13 @@ private:
     void StartOurSecretWeapon()
     {
         DespawnAll(_waveUnits);
-        DespawnAll(_armyEnemies);
         _waveActive = false;
         _blightedEnemies.clear();
         _blightSceneStage = 0;
+        EnsureBattlefield();
 
         PlaySceneForPlayers(SCENE_WAR_MACHINE_DESTROYED);
         _scheduler.Schedule(SCENE_FALLBACK, PHASE2_TASKS, [this](TaskContext /*context*/) { OnWarMachineSceneDone(); });
-
-        Merge(_armyEnemies, SummonArmy(SUMMON_GROUP_FIELD_ALLIANCE, true));
-        Merge(_armyAllies, SummonArmy(SUMMON_GROUP_FIELD_HORDE, false));
 
         if (Creature* trizz = Summon(NPC_SLUDGE_GUARD_TRIZZ, TrizzPos))
         {
@@ -1950,6 +2115,10 @@ private:
 
         _blightSceneStage = 2;
         SpreadFieldBlight();
+        // "It's killing her own troops": the dead rise as skeletons, Sludge Guards and Blight
+        // Throwers move in, and wounded Horde soldiers lie all over the field.
+        SummonBattleGroup(SUMMON_GROUP_BLIGHT_HORDE, false);
+        SummonArmy(SUMMON_GROUP_WOUNDED, false);
         if (Creature* trizz = instance->GetCreature(_trizzGuid))
             trizz->Yell(BROADCAST_TEXT_TRIZZ_GAS_MASKS);
         StartConversationNear(CONVERSATION_WOUNDED_ON_THE_FIELD, GetSaurfang());
@@ -2581,6 +2750,7 @@ private:
     GuidSet _phase2Npcs;        // leaders, Trizz, the War Machine
     GuidSet _allianceLeaders;
     GuidSet _blightedEnemies;
+    std::vector<BattleSlot> _battleSlots;
     std::map<ObjectGuid, Position> _marchTargets;
     std::map<ObjectGuid, Position> _armyPost;      // where a soldier holds
     std::map<ObjectGuid, ObjectGuid> _armyTarget;  // the opponent it fights
