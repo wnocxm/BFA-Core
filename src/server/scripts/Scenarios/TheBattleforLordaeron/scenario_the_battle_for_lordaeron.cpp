@@ -1294,6 +1294,7 @@ private:
                 creature->AddUnitFlag(UnitFlags(UNIT_FLAG_IMMUNE_TO_PC | UNIT_FLAG_IMMUNE_TO_NPC));
                 creature->SetNpcFlags(UNIT_NPC_FLAG_SPELLCLICK);
                 creature->AddAura(SPELL_WOUNDED, creature);
+                creature->SetStandState(UNIT_STAND_STATE_DEAD); // lying on the ground until bandaged
                 _armyDecor.insert(guid);
                 continue;
             }
@@ -1771,6 +1772,39 @@ private:
         _escorts.push_back(escort);
     }
 
+    // Walks to a point over the ground in between: the way is cut into short pieces and each
+    // one takes the height of the floor under it, so stairs and slopes are walked on instead
+    // of being crossed in a straight line through them.
+    void MoveAlongGround(Creature* creature, Position const& target)
+    {
+        float const step = 3.0f;
+        float dist = creature->GetExactDist2d(target);
+        uint32 pieces = uint32(dist / step);
+        if (pieces < 2)
+        {
+            creature->GetMotionMaster()->MovePoint(0, target);
+            return;
+        }
+
+        std::vector<Position> path;
+        path.push_back(*creature);
+        float z = creature->GetPositionZ();
+        for (uint32 i = 1; i < pieces; ++i)
+        {
+            float f = float(i) / float(pieces);
+            float x = creature->GetPositionX() + (target.GetPositionX() - creature->GetPositionX()) * f;
+            float y = creature->GetPositionY() + (target.GetPositionY() - creature->GetPositionY()) * f;
+            float ground = instance->GetHeight(PhasingHandler::GetEmptyPhaseShift(), x, y, z + 2.5f, true, 8.0f);
+            // A step of a stair or a slope, not a jump down a wall or onto a roof.
+            if (ground > INVALID_HEIGHT && std::fabs(ground - z) <= 3.0f)
+                z = ground;
+            path.emplace_back(x, y, z);
+        }
+        path.push_back(target);
+
+        creature->GetMotionMaster()->MoveSmoothPath(0, path.data(), path.size(), false);
+    }
+
     void UpdateEscorts()
     {
         std::vector<std::pair<EscortEnd, ObjectGuid>> finished;
@@ -1794,7 +1828,7 @@ private:
                         creature->StopMoving();
                 }
                 else if (creature->movespline->Finalized())
-                    creature->GetMotionMaster()->MovePoint(0, target);
+                    MoveAlongGround(creature, target);
                 ++itr;
                 continue;
             }
